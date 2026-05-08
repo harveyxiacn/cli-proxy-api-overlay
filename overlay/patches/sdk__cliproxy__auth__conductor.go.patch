@@ -1,0 +1,34 @@
+diff --git a/sdk/cliproxy/auth/conductor.go b/sdk/cliproxy/auth/conductor.go
+index ab3eca49..8e285add 100644
+--- a/sdk/cliproxy/auth/conductor.go
++++ b/sdk/cliproxy/auth/conductor.go
+@@ -3764,3 +3764,29 @@ func (m *Manager) HttpRequest(ctx context.Context, auth *Auth, req *http.Request
+ 	}
+ 	return exec.HttpRequest(ctx, auth, req)
+ }
++
++// TriggerRefreshAll immediately queues all non-disabled, non-api-key auths for refresh.
++// Each refresh runs in its own goroutine using context.Background() so the work is not
++// canceled when the calling HTTP request completes. Returns the number of auths queued.
++func (m *Manager) TriggerRefreshAll(_ context.Context) int {
++	if m == nil {
++		return 0
++	}
++	// Always use a background context so goroutines outlive the caller's request context.
++	bgCtx := context.Background()
++	auths := m.List()
++	count := 0
++	for _, a := range auths {
++		if a == nil || a.Disabled {
++			continue
++		}
++		accountType, _ := a.AccountInfo()
++		if strings.EqualFold(strings.TrimSpace(accountType), "api_key") {
++			continue
++		}
++		authID := a.ID
++		go m.refreshAuth(bgCtx, authID)
++		count++
++	}
++	return count
++}

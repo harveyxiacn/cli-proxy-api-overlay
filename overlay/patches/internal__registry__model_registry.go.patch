@@ -1,0 +1,101 @@
+diff --git a/internal/registry/model_registry.go b/internal/registry/model_registry.go
+index 3f3f530d..a49fa5ed 100644
+--- a/internal/registry/model_registry.go
++++ b/internal/registry/model_registry.go
+@@ -1083,6 +1083,96 @@ func (r *ModelRegistry) GetModelProviders(modelID string) []string {
+ 	return result
+ }
+ 
++// PoolProviderSummary describes per-provider availability for a model in the pool.
++type PoolProviderSummary struct {
++	Name  string `json:"name"`
++	Count int    `json:"count"`
++}
++
++// PoolModelSummary aggregates one model's registration state across the auth pool.
++type PoolModelSummary struct {
++	Info                *ModelInfo            `json:"info"`
++	TotalClients        int                   `json:"total_clients"`
++	AvailableClients    int                   `json:"available_clients"`
++	QuotaExceeded       int                   `json:"quota_exceeded"`
++	Suspended           int                   `json:"suspended"`
++	SuspendedByCooldown int                   `json:"suspended_cooldown"`
++	Providers           []PoolProviderSummary `json:"providers,omitempty"`
++}
++
++// GetPoolModelsSummary returns the registration state of every model currently
++// present in the pool. The result includes per-model client counts (total,
++// usable, quota-exceeded, suspended) and per-provider breakdowns. It is intended
++// for management/observability surfaces — not for routing decisions.
++func (r *ModelRegistry) GetPoolModelsSummary() []PoolModelSummary {
++	if r == nil {
++		return nil
++	}
++	r.mutex.RLock()
++	defer r.mutex.RUnlock()
++
++	now := time.Now()
++	out := make([]PoolModelSummary, 0, len(r.models))
++	for _, registration := range r.models {
++		if registration == nil || registration.Info == nil {
++			continue
++		}
++
++		quotaExceeded := 0
++		for _, t := range registration.QuotaExceededClients {
++			if t != nil && now.Sub(*t) < modelQuotaExceededWindow {
++				quotaExceeded++
++			}
++		}
++		suspendedTotal := 0
++		suspendedCooldown := 0
++		if registration.SuspendedClients != nil {
++			for _, reason := range registration.SuspendedClients {
++				suspendedTotal++
++				if strings.EqualFold(reason, "quota") {
++					suspendedCooldown++
++				}
++			}
++		}
++		available := registration.Count - quotaExceeded - suspendedTotal
++		if available < 0 {
++			available = 0
++		}
++
++		providers := make([]PoolProviderSummary, 0, len(registration.Providers))
++		for name, count := range registration.Providers {
++			if count <= 0 {
++				continue
++			}
++			providers = append(providers, PoolProviderSummary{Name: name, Count: count})
++		}
++		sort.Slice(providers, func(i, j int) bool {
++			if providers[i].Count == providers[j].Count {
++				return providers[i].Name < providers[j].Name
++			}
++			return providers[i].Count > providers[j].Count
++		})
++
++		out = append(out, PoolModelSummary{
++			Info:                cloneModelInfo(registration.Info),
++			TotalClients:        registration.Count,
++			AvailableClients:    available,
++			QuotaExceeded:       quotaExceeded,
++			Suspended:           suspendedTotal,
++			SuspendedByCooldown: suspendedCooldown,
++			Providers:           providers,
++		})
++	}
++
++	sort.Slice(out, func(i, j int) bool {
++		if out[i].AvailableClients != out[j].AvailableClients {
++			return out[i].AvailableClients > out[j].AvailableClients
++		}
++		return strings.ToLower(out[i].Info.ID) < strings.ToLower(out[j].Info.ID)
++	})
++	return out
++}
++
+ // GetModelInfo returns ModelInfo, prioritizing provider-specific definition if available.
+ func (r *ModelRegistry) GetModelInfo(modelID, provider string) *ModelInfo {
+ 	r.mutex.RLock()

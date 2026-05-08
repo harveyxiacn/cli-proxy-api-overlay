@@ -1,0 +1,2004 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLIProxyAPI 扩展管理面板</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --card: #1a1d27; --card2: #22263a;
+      --border: #2d3148; --accent: #6c63ff; --accent2: #4ade80;
+      --warn: #f59e0b; --danger: #ef4444; --text: #e2e8f0;
+      --text2: #94a3b8; --text3: #64748b; --radius: 10px;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    header h1 { font-size: 1.1rem; font-weight: 700; color: #fff; }
+    header h1 span { color: var(--accent); }
+    .main { max-width: 1600px; margin: 0 auto; padding: 16px 14px 60px; }
+    .config-bar { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .config-bar input { flex: 1; min-width: 150px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 7px 11px; font-size: .86rem; }
+    .config-bar input:focus { outline: none; border-color: var(--accent); }
+    .tabs { display: flex; gap: 3px; margin-bottom: 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .tab { padding: 8px 16px; border-radius: 8px 8px 0 0; cursor: pointer; font-size: .88rem; color: var(--text2); border: 1px solid transparent; border-bottom: none; transition: .15s; white-space: nowrap; }
+    .tab.active { background: var(--card); color: #fff; border-color: var(--border); }
+    .tab:hover:not(.active) { color: var(--text); }
+    .panel { display: none; padding-top: 14px; }
+    .panel.active { display: block; }
+    .btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: 7px; border: none; cursor: pointer; font-size: .83rem; font-weight: 600; transition: .15s; white-space: nowrap; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #5b52e6; }
+    .btn-success { background: #15803d; color: #fff; }
+    .btn-success:hover { background: #166534; }
+    .btn-danger { background: #b91c1c; color: #fff; }
+    .btn-danger:hover { background: #991b1b; }
+    .btn-warn { background: #b45309; color: #fff; }
+    .btn-warn:hover { background: #92400e; }
+    .btn-ghost { background: var(--card2); color: var(--text); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--border); }
+    .btn-sm { padding: 4px 8px; font-size: .76rem; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+    .card-title { font-size: .92rem; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .stat-card { background: var(--card2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; text-align: center; }
+    .stat-card .num { font-size: 1.7rem; font-weight: 800; }
+    .stat-card .lbl { font-size: .75rem; color: var(--text2); margin-top: 4px; line-height: 1.3; }
+    .green { color: var(--accent2); } .yellow { color: var(--warn); } .red { color: var(--danger); } .blue { color: #60a5fa; } .purple { color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+    th { text-align: left; padding: 9px 10px; color: var(--text3); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap; background: var(--card2); }
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { color: var(--text); }
+    th .sort-icon { margin-left: 4px; opacity: .4; font-size: .7rem; }
+    th.sort-asc .sort-icon::after { content: '▲'; opacity: 1; }
+    th.sort-desc .sort-icon::after { content: '▼'; opacity: 1; }
+    th:not(.sort-asc):not(.sort-desc) .sort-icon::after { content: '⇅'; }
+    td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(108,99,255,.05); }
+    .table-wrap { overflow-x: auto; }
+    .badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 20px; font-size: .74rem; font-weight: 600; white-space: nowrap; }
+    .badge-green { background: rgba(74,222,128,.15); color: var(--accent2); }
+    .badge-red { background: rgba(239,68,68,.15); color: var(--danger); }
+    .badge-yellow { background: rgba(245,158,11,.15); color: var(--warn); }
+    .badge-gray { background: rgba(100,116,139,.2); color: var(--text2); }
+    .badge-blue { background: rgba(96,165,250,.15); color: #60a5fa; }
+    .badge-purple { background: rgba(108,99,255,.2); color: var(--accent); }
+    .badge-orange { background: rgba(249,115,22,.18); color: #fb923c; }
+    .progress { height: 7px; border-radius: 4px; background: var(--bg); overflow: hidden; min-width: 70px; }
+    .progress-inner { height: 100%; border-radius: 4px; transition: .3s; }
+    .bar-green { background: var(--accent2); } .bar-yellow { background: var(--warn); } .bar-red { background: var(--danger); }
+    .alert { padding: 9px 13px; border-radius: 7px; font-size: .84rem; margin-bottom: 10px; }
+    .alert-info { background: rgba(96,165,250,.1); border: 1px solid rgba(96,165,250,.3); color: #93c5fd; }
+    .alert-success { background: rgba(74,222,128,.1); border: 1px solid rgba(74,222,128,.3); color: var(--accent2); }
+    .alert-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); color: #fca5a5; }
+    .alert-warn { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); color: #fcd34d; }
+    .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid transparent; border-top-color: currentColor; border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .upload-area { border: 2px dashed var(--border); border-radius: var(--radius); padding: 20px; text-align: center; cursor: pointer; transition: .2s; }
+    .upload-area:hover, .upload-area.drag { border-color: var(--accent); background: rgba(108,99,255,.05); }
+    .upload-area p { color: var(--text2); font-size: .86rem; }
+    .hidden { display: none !important; }
+    .flex { display: flex; } .gap-1 { gap: 6px; } .gap-2 { gap: 10px; } .wrap { flex-wrap: wrap; }
+    .mt-1 { margin-top: 6px; } .mt-2 { margin-top: 10px; } .mb-1 { margin-bottom: 6px; } .mb-2 { margin-bottom: 10px; }
+    .text-sm { font-size: .84rem; } .text-xs { font-size: .76rem; } .text-muted { color: var(--text2); }
+    .quota-bar-wrap { display: flex; align-items: center; gap: 7px; min-width: 120px; }
+    td.cb-col, th.cb-col { width: 32px; padding-right: 4px; }
+    input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
+    .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+    .filter-bar input, .filter-bar select { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 10px; font-size: .83rem; }
+    .filter-bar input:focus, .filter-bar select:focus { outline: none; border-color: var(--accent); }
+    .oauth-url-box { background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 9px 13px; font-size: .78rem; color: var(--text2); word-break: break-all; margin-top: 8px; display: none; }
+    .oauth-status { font-size: .82rem; margin-top: 8px; padding: 8px 12px; border-radius: 6px; }
+    .oauth-pending { background: rgba(245,158,11,.1); color: var(--warn); }
+    .oauth-success { background: rgba(74,222,128,.1); color: var(--accent2); }
+    .oauth-error { background: rgba(239,68,68,.1); color: #fca5a5; }
+    .batch-bar { background: rgba(108,99,255,.1); border: 1px solid rgba(108,99,255,.3); border-radius: 8px; padding: 8px 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .batch-bar .count { font-size: .85rem; font-weight: 600; color: var(--accent); }
+    #ver-info { font-size: .72rem; color: var(--text3); margin-left: 4px; }
+    .auto-refresh-bar { display: flex; align-items: center; gap: 8px; font-size: .83rem; color: var(--text2); }
+    .auto-refresh-bar label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+    .status-msg { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+    /* Duplicate detection panel */
+    .dup-group { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+    .dup-group-header { background: var(--card2); padding: 9px 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; cursor: pointer; user-select: none; }
+    .dup-group-header:hover { background: rgba(108,99,255,.08); }
+    .dup-group-body { display: none; border-top: 1px solid var(--border); }
+    .dup-group-body.open { display: block; }
+    .dup-group-body table { font-size: .8rem; }
+    .dup-badge-keep { background: rgba(74,222,128,.15); color: var(--accent2); border-radius: 4px; padding: 1px 6px; font-size: .71rem; font-weight: 700; white-space: nowrap; }
+    .dup-badge-del  { background: rgba(239,68,68,.12); color: var(--danger); border-radius: 4px; padding: 1px 6px; font-size: .71rem; white-space: nowrap; }
+    /* Refresh results panel */
+    #refresh-results-panel { margin-top: 12px; }
+    .rr-card { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+    .rr-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; user-select: none; font-size: .85rem; font-weight: 600; }
+    .rr-header:hover { filter: brightness(1.1); }
+    .rr-header-success { background: rgba(74,222,128,.12); color: var(--accent2); }
+    .rr-header-relogin { background: rgba(249,115,22,.12); color: #fb923c; }
+    .rr-header-error   { background: rgba(239,68,68,.12); color: var(--danger); }
+    .rr-header-skip    { background: rgba(100,116,139,.12); color: var(--text2); }
+    .rr-body { display: none; border-top: 1px solid var(--border); }
+    .rr-body.open { display: block; }
+    .rr-body table { font-size: .8rem; }
+    .rr-chevron { margin-left: auto; opacity: .6; font-size: .8rem; transition: .2s; }
+    .rr-card.open .rr-chevron { transform: rotate(180deg); }
+    /* ── Modal ── */
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:1000; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px); }
+    .modal-box { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:24px 28px; min-width:360px; max-width:560px; width:92vw; box-shadow:0 20px 60px rgba(0,0,0,.4); }
+    .modal-title { font-size:1rem; font-weight:700; margin-bottom:8px; }
+    .modal-subtitle { font-size:.84rem; color:var(--text2); margin-bottom:14px; min-height:1.2em; }
+    .modal-progress { height:8px; border-radius:4px; background:var(--bg); overflow:hidden; margin-bottom:10px; }
+    .modal-progress-inner { height:100%; border-radius:4px; background:var(--accent); transition:width .4s ease; }
+    .modal-detail { font-size:.8rem; color:var(--text3); min-height:1.1em; margin-bottom:4px; }
+    .modal-actions { margin-top:16px; text-align:right; }
+    /* ── Quota distribution bar ── */
+    .quota-dist-bar { display:flex; height:10px; border-radius:5px; overflow:hidden; gap:1px; margin:10px 0 6px; }
+    .quota-dist-seg { transition:.3s; }
+    /* Log viewer */
+    #log-box { background: #0a0c14; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-family: 'Cascadia Code','Fira Code',monospace; font-size: .76rem; line-height: 1.55; height: 520px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .log-info  { color: #60a5fa; }
+    .log-warn  { color: #f59e0b; }
+    .log-error { color: #f87171; }
+    .log-debug { color: #94a3b8; }
+    .log-default { color: #cbd5e1; }
+    .log-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+    .log-bar input { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 9px; font-size: .82rem; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>CLI<span>Proxy</span>API &mdash; 扩展管理面板</h1>
+  <div class="flex gap-2" style="align-items:center">
+    <span id="conn-status" class="badge badge-gray">未连接</span>
+    <span id="ver-info"></span>
+    <a href="/management" target="_blank" class="btn btn-primary" style="font-size:.78rem">✨ 新版 React UI ↗</a>
+    <a href="/management.html" target="_blank" class="btn btn-ghost" style="font-size:.78rem">原始面板 ↗</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="config-bar">
+    <input id="inp-url" placeholder="CPA 地址，如 http://127.0.0.1:8317" value="http://127.0.0.1:8317">
+    <input id="inp-key" type="password" placeholder="管理密钥 (management secret key)">
+    <button class="btn btn-primary" onclick="connect()">连接</button>
+    <button class="btn btn-ghost" onclick="saveConfig()">保存配置</button>
+    <span id="connect-msg" class="text-sm text-muted"></span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active"  onclick="switchTab('dashboard')">📊 仪表盘</div>
+    <div class="tab" onclick="switchTab('quota')">⚡ Codex 配额</div>
+    <div class="tab" onclick="switchTab('files')">📁 授权文件</div>
+    <div class="tab" onclick="switchTab('pool')">🧩 模型池</div>
+    <div class="tab" onclick="switchTab('usage')">📈 请求统计</div>
+    <div class="tab" onclick="switchTab('oauth')">🔑 OAuth 登录</div>
+    <div class="tab" onclick="switchTab('logs')">📋 日志</div>
+  </div>
+
+  <!-- ── Dashboard ── -->
+  <div id="panel-dashboard" class="panel active">
+    <div id="dash-alert"></div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="num blue"   id="s-total">-</div><div class="lbl">授权文件总数</div></div>
+      <div class="stat-card"><div class="num green"  id="s-healthy">-</div><div class="lbl">正常 (active/ready)</div></div>
+      <div class="stat-card"><div class="num red"    id="s-error">-</div><div class="lbl">错误/不可用</div></div>
+      <div class="stat-card"><div class="num yellow" id="s-disabled">-</div><div class="lbl">已禁用</div></div>
+      <div class="stat-card"><div class="num purple" id="s-codex">-</div><div class="lbl">Codex Token</div></div>
+      <div class="stat-card"><div class="num" style="color:#fb923c" id="s-relogin">-</div><div class="lbl">需要重新登录</div></div>
+      <div class="stat-card"><div class="num green"  id="s-success">-</div><div class="lbl">累计成功请求</div></div>
+      <div class="stat-card"><div class="num red"    id="s-failed">-</div><div class="lbl">累计失败请求</div></div>
+    </div>
+    <div class="flex gap-2 wrap mb-2" style="align-items:center">
+      <button class="btn btn-primary" onclick="loadDashboard()">🔄 刷新仪表盘</button>
+      <button class="btn btn-success" id="btn-refresh-all" onclick="refreshAllTokens()">⚡ 一键刷新全部 Token</button>
+      <div class="auto-refresh-bar">
+        <label><input type="checkbox" id="auto-refresh-cb" onchange="toggleAutoRefresh(this.checked)"> 自动刷新 (30s)</label>
+      </div>
+    </div>
+    <!-- Today's Token Stats (loaded on dashboard open) -->
+    <div id="today-stats" class="hidden" style="margin-top:14px">
+      <div style="font-size:.8rem;font-weight:600;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+        📊 今日 Token 统计 <span id="today-date" class="text-xs" style="font-weight:400"></span>
+        <span class="text-xs text-muted" style="font-weight:400">（仅统计今日内通过 CPA 代理的请求；按 OpenAI 官方定价估算费用）</span>
+      </div>
+      <div class="stats-grid" id="today-grid"></div>
+    </div>
+
+    <div id="refresh-status" class="text-sm mt-1"></div>
+    <div id="refresh-results-panel"></div>
+  </div>
+
+  <!-- ── Codex Quota ── -->
+  <div id="panel-quota" class="panel">
+    <div class="card">
+      <div class="card-title">
+        Codex 配额详情
+        <div class="flex gap-2">
+          <button class="btn btn-primary" onclick="loadQuota()">🔄 刷新配额</button>
+          <button class="btn btn-success" onclick="refreshAllTokens()">⚡ 刷新全部 Token</button>
+          <button class="btn btn-warn btn-sm" onclick="refreshThenLoadQuota()" title="先刷新Token令牌，再重新查询配额（解决"需刷新"错误）">🔁 刷新Token后重查配额</button>
+        </div>
+      </div>
+
+      <!-- Quota aggregate overview -->
+      <div id="quota-aggregate" class="hidden" style="margin-bottom:12px"></div>
+      <div class="alert alert-info" style="margin-bottom:12px;font-size:.82rem">
+        进度条内标签自动显示窗口时长（<b>7天</b> = free 账号；<b>5h</b> = 付费账号主窗口）。Code Review 额度仅在 API 返回时显示。
+      </div>
+      <div id="quota-summary" class="stats-grid"></div>
+      <div id="quota-alert"></div>
+      <div class="table-wrap">
+        <table id="quota-table">
+          <thead><tr>
+            <th>邮箱 / ID</th><th>状态</th>
+            <th>主配额</th><th>剩余%</th><th>重置时间</th>
+            <th id="quota-th-secondary" style="display:none">次配额</th><th id="quota-th-secondary2" style="display:none">次剩余%</th><th id="quota-th-secondary3" style="display:none">次重置</th>
+            <th id="quota-th-cr" style="display:none">Code Review</th><th id="quota-th-cr2" style="display:none">CR剩余%</th><th id="quota-th-cr3" style="display:none">CR重置</th>
+            <th id="quota-th-other" style="display:none">其他额度</th>
+          </tr></thead>
+          <tbody id="quota-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Auth Files ── -->
+  <div id="panel-files" class="panel">
+    <div class="card">
+      <div class="card-title">
+        授权文件管理
+        <div class="flex gap-2">
+          <button class="btn btn-primary" onclick="loadFiles()">🔄 刷新</button>
+          <button class="btn btn-success" onclick="refreshAllTokens()">⚡ 刷新全部 Token</button>
+          <button class="btn btn-ghost btn-sm" onclick="showDupPanel()">🔁 重复检测</button>
+        </div>
+      </div>
+      <div class="upload-area mb-2" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event,'files-upload-result')" onclick="document.getElementById('files-input').click()">
+        <p>📁 点击或拖拽 JSON 授权文件上传（支持多文件）</p>
+      </div>
+      <input type="file" id="files-input" accept=".json" multiple class="hidden" onchange="uploadFiles(this.files,'files-upload-result')">
+      <div id="files-upload-result" class="text-sm mt-1 mb-2"></div>
+
+      <div class="filter-bar">
+        <input id="f-provider" placeholder="Provider (codex/gemini/…)" style="width:150px">
+        <input id="f-email" placeholder="邮箱关键词" style="width:160px">
+        <select id="f-status" style="width:160px">
+          <option value="">全部状态</option>
+          <option value="problem">有问题 (error/unavailable/disabled)</option>
+          <option value="relogin">需要重新登录</option>
+          <option value="active">active</option>
+          <option value="ready">ready</option>
+          <option value="disabled">disabled</option>
+        </select>
+        <button class="btn btn-ghost" onclick="renderFilesTable()">搜索</button>
+        <button class="btn btn-ghost" onclick="clearFilesFilter()">清除</button>
+        <button class="btn btn-ghost btn-sm" onclick="quickSelect('relogin')" title="选中所有需重登录账号">⚡选需重登录</button>
+        <button class="btn btn-ghost btn-sm" onclick="quickSelect('problem')" title="选中所有有问题账号">⚠选问题账号</button>
+        <span id="files-count" class="text-sm text-muted"></span>
+      </div>
+
+      <div class="batch-bar hidden" id="batch-bar">
+        <span class="count" id="batch-count">0 项已选</span>
+        <button class="btn btn-success btn-sm" onclick="batchSetStatus(false)">✅ 启用所选</button>
+        <button class="btn btn-warn btn-sm"    onclick="batchSetStatus(true)">🚫 禁用所选</button>
+        <button class="btn btn-danger btn-sm"  onclick="batchDelete()">🗑 删除所选</button>
+        <button class="btn btn-ghost btn-sm"   onclick="clearSelection()">取消选择</button>
+      </div>
+
+      <!-- Duplicate panel: injected here so it appears above the table -->
+      <div id="dup-card" class="hidden" style="border:1px solid var(--border);border-radius:var(--radius);background:var(--card);padding:16px;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:10px">
+          🔁 重复账号检测
+          <div class="flex gap-2" style="align-items:center">
+            <span id="dup-summary" class="text-sm text-muted"></span>
+            <button class="btn btn-danger btn-sm" id="btn-clean-all-dups" onclick="cleanAllDups()" disabled>🗑 一键清理全部重复</button>
+            <button class="btn btn-ghost btn-sm" onclick="hideDupPanel()">✕ 关闭</button>
+          </div>
+        </div>
+        <div id="dup-alert"></div>
+        <div id="dup-content"><p class="text-muted text-sm" style="text-align:center;padding:12px">加载中…</p></div>
+      </div>
+
+      <div id="files-alert"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="cb-col"><input type="checkbox" id="cb-all" onchange="toggleAll(this)"></th>
+              <th class="sortable" onclick="sortFiles('name')">文件名<span class="sort-icon"></span></th>
+              <th class="sortable" onclick="sortFiles('provider')">Provider<span class="sort-icon"></span></th>
+              <th class="sortable" onclick="sortFiles('email')">邮箱<span class="sort-icon"></span></th>
+              <th class="sortable" onclick="sortFiles('status')">状态<span class="sort-icon"></span></th>
+              <th>错误信息</th>
+              <th class="sortable" onclick="sortFiles('success')">成功<span class="sort-icon"></span></th>
+              <th class="sortable" onclick="sortFiles('failed')">失败<span class="sort-icon"></span></th>
+              <th class="sortable" onclick="sortFiles('last_refresh')" title="只有刷新成功才会更新此时间；失败则为空">最后刷新<span class="sort-icon"></span></th>
+              <th title="刷新失败后服务器计划的下次重试时间">下次重试</th>
+              <th title="查看该账号当前已注册到 Model Registry 的模型列表">模型</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="files-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Model Pool ── -->
+  <div id="panel-pool" class="panel">
+    <div class="card">
+      <div class="card-title">
+        当前账号池支持的模型
+        <div class="flex gap-2" style="align-items:center">
+          <span id="pool-meta" class="text-xs text-muted"></span>
+          <button class="btn btn-primary btn-sm" onclick="loadPoolModels()">🔄 刷新</button>
+        </div>
+      </div>
+      <div class="alert alert-info" style="margin-bottom:10px;font-size:.82rem">
+        汇总自全局 Model Registry：列出所有当前至少有一个 client 注册的模型（包括 codex / anthropic / gemini / kimi / antigravity 等）。可用客户端 = 注册 client 数 - 配额耗尽 - 主动挂起。
+      </div>
+      <div class="filter-bar">
+        <input id="pool-q" placeholder="按模型 id / display_name 过滤" style="width:260px" oninput="renderPoolModels()">
+        <select id="pool-provider" style="width:200px" onchange="renderPoolModels()">
+          <option value="">全部 Provider</option>
+        </select>
+        <select id="pool-status" style="width:200px" onchange="renderPoolModels()">
+          <option value="">全部状态</option>
+          <option value="available">可用 (available_clients &gt; 0)</option>
+          <option value="degraded">降级 (有配额耗尽或挂起)</option>
+          <option value="exhausted">不可用 (available_clients = 0)</option>
+        </select>
+        <button class="btn btn-ghost" onclick="clearPoolFilter()">清除</button>
+        <span id="pool-count" class="text-sm text-muted"></span>
+      </div>
+      <div id="pool-alert"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="sortable" onclick="sortPool('id')">模型 ID<span class="sort-icon"></span></th>
+              <th>名称 / 描述</th>
+              <th class="sortable" onclick="sortPool('owned_by')">Owner<span class="sort-icon"></span></th>
+              <th>Provider 分布</th>
+              <th class="sortable" onclick="sortPool('available_clients')" title="排除配额耗尽与挂起后的可用 client 数">可用 / 总数<span class="sort-icon"></span></th>
+              <th title="近 5 分钟内 quota_exceeded">配额耗尽</th>
+              <th title="主动挂起的 client 数">挂起</th>
+              <th>能力</th>
+            </tr>
+          </thead>
+          <tbody id="pool-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Usage Stats ── -->
+  <div id="panel-usage" class="panel">
+    <!-- Token Stats Card (new: reads from /v0/management/token-stats) -->
+    <div class="card">
+      <div class="card-title">
+        📊 Token 使用统计
+        <div class="flex gap-2" style="align-items:center">
+          <span id="ts-uptime" class="text-xs text-muted"></span>
+          <button class="btn btn-primary btn-sm" onclick="loadTokenStats()">🔄 刷新</button>
+          <button class="btn btn-warn btn-sm" onclick="resetTokenStats()">🔁 重置计数</button>
+        </div>
+      </div>
+      <div class="alert alert-info" style="margin-bottom:10px;font-size:.8rem">
+        统计自服务器启动（或上次重置）以来通过 CPA 代理的所有请求的 Token 消耗。重启后自动清零。
+      </div>
+      <div id="ts-summary" class="stats-grid"></div>
+      <div id="ts-alert"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>邮箱 / ID</th><th>Provider</th>
+            <th>输入 Tokens</th><th>输出 Tokens</th><th>缓存命中</th><th>推理 Tokens</th><th>合计 Tokens</th>
+            <th>预估费用</th><th>成功请求</th><th>失败请求</th><th>最后使用</th>
+          </tr></thead>
+          <tbody id="ts-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Auth Request Stats Card (existing) -->
+    <div class="card">
+      <div class="card-title">
+        全部授权请求统计（成功/失败次数）
+        <button class="btn btn-primary btn-sm" onclick="loadUsage()">🔄 刷新</button>
+      </div>
+      <div class="alert alert-warn" style="margin-bottom:12px;font-size:.82rem">
+        ⚠ 成功/失败请求数为进程内累计值，重启后清零。
+      </div>
+      <div id="usage-summary" class="stats-grid"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>邮箱 / ID</th><th>Provider</th><th>状态</th>
+            <th>成功请求</th><th>失败请求</th><th>成功率</th><th>近期趋势 (最新→最旧)</th>
+          </tr></thead>
+          <tbody id="usage-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── OAuth ── -->
+  <div id="panel-oauth" class="panel">
+    <div class="flex gap-2 wrap">
+      <div class="card" style="flex:1;min-width:300px;max-width:520px">
+        <div class="card-title">Codex OAuth 登录</div>
+        <p class="text-sm text-muted mb-2">通过 Web UI 完成 Codex (OpenAI) OAuth 授权，令牌自动保存到 CPA。</p>
+        <div id="oauth-alert"></div>
+        <div class="flex gap-2 mt-1">
+          <button class="btn btn-primary" id="btn-codex-login" onclick="startCodexOAuth()">🔑 启动 Codex OAuth</button>
+          <button class="btn btn-ghost" id="btn-codex-stop" onclick="stopOAuth()" style="display:none">⏹ 停止</button>
+        </div>
+        <div id="oauth-url-box" class="oauth-url-box"></div>
+        <div id="oauth-status-box"></div>
+      </div>
+      <div class="card" style="flex:1;min-width:300px;max-width:520px">
+        <div class="card-title">上传 JSON 授权文件</div>
+        <p class="text-sm text-muted mb-2">直接将已有的 JSON 令牌文件上传到 CPA。</p>
+        <div class="upload-area" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event,'oauth-upload-result')" onclick="document.getElementById('oauth-file-input').click()">
+          <p>📁 点击或拖拽上传 JSON 文件</p>
+        </div>
+        <input type="file" id="oauth-file-input" accept=".json" multiple class="hidden" onchange="uploadFiles(this.files,'oauth-upload-result')">
+        <div id="oauth-upload-result" class="text-sm mt-1"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Logs ── -->
+  <div id="panel-logs" class="panel">
+    <div class="card">
+      <div class="card-title">
+        服务器日志
+        <div class="flex gap-2" style="align-items:center">
+          <span id="log-status" class="text-xs text-muted"></span>
+          <button class="btn btn-primary btn-sm" onclick="loadLogs(true)">🔄 刷新</button>
+          <button class="btn btn-ghost btn-sm" id="btn-log-follow" onclick="toggleLogFollow()">📌 跟随</button>
+          <button class="btn btn-danger btn-sm" onclick="clearLogs()">🗑 清空日志</button>
+        </div>
+      </div>
+      <div class="log-bar">
+        <input id="log-search" placeholder="过滤关键词（本地搜索）" style="width:220px" oninput="applyLogFilter()">
+        <select id="log-level-filter" style="width:110px" onchange="applyLogFilter()">
+          <option value="">全部级别</option>
+          <option value="error">error</option>
+          <option value="warn">warn</option>
+          <option value="info">info</option>
+          <option value="debug">debug</option>
+        </select>
+        <label class="auto-refresh-bar"><input type="checkbox" id="log-auto-poll" onchange="toggleLogPoll(this.checked)"> 自动轮询 (10s)</label>
+        <span id="log-line-count" class="text-xs text-muted"></span>
+      </div>
+      <div class="alert alert-warn" style="margin-bottom:8px;font-size:.8rem">
+        ⚠ 日志功能需要服务端配置 <code>logging_to_file: true</code>。若返回错误说明未启用文件日志。
+      </div>
+      <div id="log-box"></div>
+    </div>
+  </div>
+</div><!-- /main -->
+
+<!-- ── Global Modal ── -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-title" id="modal-title">处理中</div>
+    <div class="modal-subtitle" id="modal-subtitle"></div>
+    <div class="modal-progress"><div class="modal-progress-inner" id="modal-bar" style="width:0%"></div></div>
+    <div class="modal-detail" id="modal-detail"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="modal-close-btn" onclick="closeModal()" style="display:none">✕ 关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Auth Models Modal ── -->
+<div id="models-modal-overlay" class="modal-overlay hidden" onclick="if(event.target===this)closeModelsModal()">
+  <div class="modal-box" style="max-width:760px">
+    <div class="modal-title" id="models-modal-title">账号支持的模型</div>
+    <div class="modal-subtitle" id="models-modal-subtitle"></div>
+    <div id="models-modal-body" style="max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--bg)">
+      <p class="text-muted text-sm" style="text-align:center;padding:20px">加载中…</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModelsModal()">✕ 关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+const S = {
+  url:'', key:'', connected:false,
+  files:[], sortCol:'name', sortDir:'asc',
+  oauthState:null, oauthPollTimer:null,
+  selectedNames:new Set(),
+  autoRefreshTimer:null,
+  logLines:[], logLatest:0, logPollTimer:null, logFollow:true,
+  currentTab:'dashboard',
+  poolModels:[], poolSortCol:'available_clients', poolSortDir:'desc'
+};
+
+// ── Init ──
+addEventListener('DOMContentLoaded', () => {
+  const c = JSON.parse(localStorage.getItem('cpa_cfg')||'{}');
+  if (c.url) ById('inp-url').value = c.url;
+  if (c.key) ById('inp-key').value = c.key;
+  if (c.url && c.key) connect(true);
+});
+
+// ── Helpers ──
+function ById(id){ return document.getElementById(id); }
+function setText(id,v){ const e=ById(id); if(e) e.textContent=v; }
+function showMsg(id,txt,color){const e=ById(id);if(e){e.textContent=txt;e.style.color=color==='green'?'var(--accent2)':color==='red'?'var(--danger)':'var(--text2)';}}
+function showAlert(id,type,html){const e=ById(id);if(!e)return;const cls={info:'alert-info',success:'alert-success',error:'alert-error',warn:'alert-warn'}[type];e.innerHTML=`<div class="alert ${cls}">${html}</div>`;}
+function clearAlert(id){const e=ById(id);if(e)e.innerHTML='';}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// Escape a value for use as a JS single-quoted string inside an HTML attribute
+function jsStr(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+
+// ── Config ──
+function saveConfig(){
+  localStorage.setItem('cpa_cfg',JSON.stringify({url:ById('inp-url').value.trim(),key:ById('inp-key').value.trim()}));
+  showMsg('connect-msg','✓ 已保存','green');
+}
+
+async function connect(silent=false){
+  S.url=ById('inp-url').value.trim().replace(/\/$/,'');
+  S.key=ById('inp-key').value.trim();
+  if(!S.url||!S.key){showMsg('connect-msg','请填写地址和密钥','red');return;}
+  try{
+    const r=await api('GET','/auth-files');
+    S.connected=true;
+    setConnStatus(true);
+    if(!silent) showMsg('connect-msg',`✓ 已连接，${(r.files||[]).length} 个文件`,'green');
+    loadDashboard();
+    if(ById('auto-refresh-cb')&&ById('auto-refresh-cb').checked) toggleAutoRefresh(true);
+  }catch(e){
+    S.connected=false; setConnStatus(false);
+    if(S.autoRefreshTimer){clearInterval(S.autoRefreshTimer);S.autoRefreshTimer=null;}
+    if(!silent) showMsg('connect-msg','✗ '+e.message,'red');
+  }
+}
+function setConnStatus(ok){
+  const e=ById('conn-status');
+  e.textContent=ok?'已连接':'未连接';
+  e.className='badge '+(ok?'badge-green':'badge-gray');
+}
+
+// ── API ──
+async function api(method,path,body){
+  const url=(S.url||'http://127.0.0.1:8317')+'/v0/management'+path;
+  const opts={method,headers:{'Authorization':'Bearer '+S.key,'Content-Type':'application/json'}};
+  if(body!==undefined) opts.body=typeof body==='string'?body:JSON.stringify(body);
+  const r=await fetch(url,opts);
+  const ver=r.headers.get('X-CPA-VERSION')||'';
+  const commit=r.headers.get('X-CPA-COMMIT')||'';
+  if(ver){const el=ById('ver-info');if(el)el.textContent=`v${ver}`+(commit&&commit!=='none'?` (${commit.slice(0,7)})`:'');}
+  if(!r.ok){let m=`HTTP ${r.status}`;try{const d=await r.json();m=d.error||m;}catch{}throw new Error(m);}
+  return r.json();
+}
+async function apiRaw(method,path,blob,ct){
+  const url=(S.url||'http://127.0.0.1:8317')+'/v0/management'+path;
+  const r=await fetch(url,{method,headers:{'Authorization':'Bearer '+S.key,'Content-Type':ct||'application/octet-stream'},body:blob});
+  if(!r.ok){let m=`HTTP ${r.status}`;try{const d=await r.json();m=d.error||m;}catch{}throw new Error(m);}
+  return r.json();
+}
+
+// ── Tabs ──
+const TAB_NAMES=['dashboard','quota','files','pool','usage','oauth','logs'];
+function switchTab(name){
+  S.currentTab=name;
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',TAB_NAMES[i]===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  ById('panel-'+name).classList.add('active');
+  if(!S.connected)return;
+  if(name==='quota') loadQuota();
+  else if(name==='files') loadFiles();
+  else if(name==='pool') loadPoolModels();
+  else if(name==='usage'){loadUsage();loadTokenStats();}
+  else if(name==='logs') loadLogs(true);
+}
+
+// ── Dashboard ──
+async function loadDashboard(){
+  if(!S.connected){showAlert('dash-alert','error','请先连接 CPA');return;}
+  showAlert('dash-alert','info','加载中…');
+  try{
+    const [fr,sr]=await Promise.all([api('GET','/auth-files'),api('GET','/auth-stats')]);
+    const files=fr.files||[];
+    S.files=files;
+    const healthy=files.filter(f=>['active','ready'].includes(f.status)&&!f.disabled).length;
+    const disabled=files.filter(f=>f.disabled).length;
+    const errored=files.filter(f=>!['active','ready'].includes(f.status)&&!f.disabled&&f.status).length;
+    const codex=files.filter(f=>(f.provider||'').toLowerCase()==='codex').length;
+    const relogin=files.filter(f=>needsRelogin(f)).length;
+    setText('s-total',files.length); setText('s-healthy',healthy); setText('s-error',errored);
+    setText('s-disabled',disabled); setText('s-codex',codex); setText('s-relogin',relogin);
+    setText('s-success',sr.total_success||0); setText('s-failed',sr.total_failed||0);
+    clearAlert('dash-alert');
+    // Load today's token stats quietly (non-blocking)
+    loadTokenStats().catch(()=>{});
+  }catch(e){showAlert('dash-alert','error','加载失败: '+e.message);}
+}
+
+// ── Modal ──
+const MODAL = {
+  timer: null,
+  closeable: false,
+};
+
+function showModal(title, subtitle=''){
+  MODAL.closeable = false;
+  setText('modal-title', title);
+  setText('modal-subtitle', subtitle);
+  ById('modal-bar').style.width = '0%';
+  ById('modal-detail').textContent = '';
+  ById('modal-close-btn').style.display = 'none';
+  ById('modal-overlay').classList.remove('hidden');
+}
+
+function updateModal(pct, subtitle, detail=''){
+  ById('modal-bar').style.width = Math.min(100, Math.max(0, pct)) + '%';
+  if(subtitle != null) setText('modal-subtitle', subtitle);
+  if(detail)           ById('modal-detail').textContent = detail;
+}
+
+function finishModal(subtitle='', detail=''){
+  MODAL.closeable = true;
+  ById('modal-bar').style.width = '100%';
+  if(subtitle) setText('modal-subtitle', subtitle);
+  if(detail)   ById('modal-detail').textContent = detail;
+  ById('modal-close-btn').style.display = '';
+}
+
+function closeModal(){
+  if(!MODAL.closeable) return;
+  ById('modal-overlay').classList.add('hidden');
+}
+
+// ── Auth Models modal ──
+function closeModelsModal(){
+  ById('models-modal-overlay').classList.add('hidden');
+}
+function renderAuthModelsList(name, models){
+  setText('models-modal-title', '账号支持的模型 — ' + name);
+  const cnt = models.length;
+  setText('models-modal-subtitle', cnt ? `共 ${cnt} 个模型已注册到 Model Registry` : '该账号当前未注册任何模型（可能未登录成功或尚未首次刷新）');
+  const body = ById('models-modal-body');
+  if(!cnt){
+    body.innerHTML = '<p class="text-muted text-sm" style="text-align:center;padding:20px">无数据</p>';
+    return;
+  }
+  // Group by type for readability
+  const byType = {};
+  models.forEach(m=>{
+    const t = m.type || m.owned_by || '其他';
+    (byType[t] = byType[t] || []).push(m);
+  });
+  const groups = Object.keys(byType).sort();
+  body.innerHTML = groups.map(t=>{
+    const list = byType[t].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+    const rows = list.map(m=>{
+      const id = esc(m.id||'');
+      const dn = m.display_name ? `<span class="text-xs text-muted" style="margin-left:6px">${esc(m.display_name)}</span>` : '';
+      const owner = m.owned_by ? `<span class="badge badge-gray" style="margin-left:6px">${esc(m.owned_by)}</span>` : '';
+      return `<div style="padding:4px 0;border-bottom:1px dashed var(--border)"><code style="font-size:.82rem">${id}</code>${dn}${owner}</div>`;
+    }).join('');
+    return `<div style="margin:8px 0">
+      <div class="text-xs text-muted" style="margin-bottom:4px">▌ ${esc(t)}（${list.length}）</div>
+      ${rows}
+    </div>`;
+  }).join('');
+}
+async function showAuthModels(name){
+  if(!S.connected){showAlert('files-alert','error','请先连接 CPA');return;}
+  setText('models-modal-title', '账号支持的模型 — ' + name);
+  setText('models-modal-subtitle', '加载中…');
+  ById('models-modal-body').innerHTML = '<p class="text-muted text-sm" style="text-align:center;padding:20px">加载中…</p>';
+  ById('models-modal-overlay').classList.remove('hidden');
+  try{
+    const r = await api('GET', '/auth-files/models?name=' + encodeURIComponent(name));
+    renderAuthModelsList(name, r.models || []);
+  }catch(e){
+    setText('models-modal-subtitle', '加载失败');
+    ById('models-modal-body').innerHTML = `<div class="alert alert-error">加载失败: ${esc(e.message||String(e))}</div>`;
+  }
+}
+
+// ── Model Pool ──
+async function loadPoolModels(){
+  if(!S.connected){showAlert('pool-alert','error','请先连接 CPA');return;}
+  showAlert('pool-alert','info','加载中…');
+  try{
+    const r = await api('GET','/pool-models');
+    S.poolModels = r.models || [];
+    rebuildPoolProviderFilter();
+    renderPoolModels();
+    setText('pool-meta', `共 ${r.total||S.poolModels.length} 个模型 · ${new Date().toLocaleTimeString('zh-CN')} 拉取`);
+    clearAlert('pool-alert');
+  }catch(e){
+    showAlert('pool-alert','error','加载失败: '+e.message);
+  }
+}
+function rebuildPoolProviderFilter(){
+  const sel = ById('pool-provider'); if(!sel) return;
+  const prev = sel.value;
+  const set = new Set();
+  S.poolModels.forEach(m=>{
+    (m.providers||[]).forEach(p=>{ if(p && p.name) set.add(p.name); });
+  });
+  const opts = ['<option value="">全部 Provider</option>'].concat([...set].sort().map(n=>`<option value="${esc(n)}">${esc(n)}</option>`));
+  sel.innerHTML = opts.join('');
+  if(prev && set.has(prev)) sel.value = prev;
+}
+function clearPoolFilter(){
+  ById('pool-q').value = '';
+  ById('pool-provider').value = '';
+  ById('pool-status').value = '';
+  renderPoolModels();
+}
+function sortPool(col){
+  if(S.poolSortCol===col) S.poolSortDir = S.poolSortDir==='asc'?'desc':'asc';
+  else { S.poolSortCol = col; S.poolSortDir = (col==='id'||col==='owned_by') ? 'asc' : 'desc'; }
+  renderPoolModels();
+}
+function poolSortValue(m, col){
+  switch(col){
+    case 'id': return String(m.id||'').toLowerCase();
+    case 'owned_by': return String(m.owned_by||'').toLowerCase();
+    case 'available_clients': return Number(m.available_clients||0);
+    default: return '';
+  }
+}
+function renderPoolModels(){
+  const q = (ById('pool-q').value||'').trim().toLowerCase();
+  const fp = ById('pool-provider').value || '';
+  const fs = ById('pool-status').value || '';
+  let rows = [...S.poolModels];
+  if(q) rows = rows.filter(m => String(m.id||'').toLowerCase().includes(q) || String(m.display_name||'').toLowerCase().includes(q));
+  if(fp) rows = rows.filter(m => (m.providers||[]).some(p => p && p.name === fp));
+  if(fs==='available')      rows = rows.filter(m => (m.available_clients||0) > 0);
+  else if(fs==='exhausted') rows = rows.filter(m => (m.available_clients||0) === 0);
+  else if(fs==='degraded')  rows = rows.filter(m => (m.quota_exceeded||0) > 0 || (m.suspended||0) > 0);
+
+  rows.sort((a,b)=>{
+    const va = poolSortValue(a, S.poolSortCol), vb = poolSortValue(b, S.poolSortCol);
+    let cmp = 0;
+    if(typeof va==='number' && typeof vb==='number') cmp = va - vb;
+    else cmp = String(va).localeCompare(String(vb));
+    return S.poolSortDir==='asc' ? cmp : -cmp;
+  });
+
+  document.querySelectorAll('#panel-pool th.sortable').forEach(th=>{
+    th.classList.remove('sort-asc','sort-desc');
+    const col = th.getAttribute('onclick')?.match(/sortPool\('(\w+)'\)/)?.[1];
+    if(col === S.poolSortCol) th.classList.add(S.poolSortDir==='asc' ? 'sort-asc' : 'sort-desc');
+  });
+
+  setText('pool-count', `共 ${rows.length} 条`);
+  const tbody = ById('pool-tbody');
+  if(!rows.length){ tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">暂无数据（无 client 注册或尚未连接成功）</td></tr>'; return; }
+
+  tbody.innerHTML = rows.map(m=>{
+    const id = esc(m.id||'');
+    const dn = m.display_name ? `<div class="text-xs text-muted">${esc(m.display_name)}</div>` : '';
+    const desc = m.description ? `<div class="text-xs text-muted" style="max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.description)}">${esc(m.description)}</div>` : '';
+    const owner = m.owned_by ? `<span class="badge badge-gray">${esc(m.owned_by)}</span>` : '<span class="text-muted text-xs">-</span>';
+    const provBadges = (m.providers||[]).map(p=>`<span class="badge badge-blue" title="该 provider 当前注册的 client 数" style="margin-right:4px">${esc(p.name)} × ${p.count}</span>`).join('') || '<span class="text-muted text-xs">-</span>';
+
+    const total = m.total_clients||0;
+    const avail = m.available_clients||0;
+    const availColor = avail===0 ? 'var(--danger)' : avail<total ? 'var(--warn)' : 'var(--accent2)';
+    const availCell = `<span style="color:${availColor};font-weight:600">${avail}</span> <span class="text-muted text-xs">/ ${total}</span>`;
+
+    const qe = m.quota_exceeded||0;
+    const qeCell = qe>0 ? `<span class="badge badge-yellow">${qe}</span>` : '<span class="text-muted text-xs">-</span>';
+    const sus = m.suspended||0;
+    const susCell = sus>0 ? `<span class="badge badge-orange">${sus}</span>` : '<span class="text-muted text-xs">-</span>';
+
+    const caps = [];
+    if(m.context_length) caps.push(`<span class="text-xs text-muted" title="context_length">📏 ${(m.context_length/1000).toFixed(0)}k</span>`);
+    if(m.max_completion_tokens) caps.push(`<span class="text-xs text-muted" title="max_completion_tokens">📝 ${(m.max_completion_tokens/1000).toFixed(0)}k</span>`);
+    if(Array.isArray(m.thinking_levels) && m.thinking_levels.length){
+      caps.push(`<span class="text-xs text-muted" title="thinking levels: ${esc(m.thinking_levels.join(', '))}">🧠 ${esc(m.thinking_levels.join('/'))}</span>`);
+    }
+    const capsCell = caps.length ? caps.join(' &nbsp; ') : '<span class="text-muted text-xs">-</span>';
+
+    return `<tr>
+      <td><code style="font-size:.82rem">${id}</code></td>
+      <td>${dn}${desc}</td>
+      <td>${owner}</td>
+      <td>${provBadges}</td>
+      <td>${availCell}</td>
+      <td>${qeCell}</td>
+      <td>${susCell}</td>
+      <td>${capsCell}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Animate progress bar while waiting for a promise
+function animateModalProgress(startPct, maxPct, intervalMs){
+  let cur = startPct;
+  MODAL.timer = setInterval(()=>{
+    cur = Math.min(maxPct, cur + (maxPct - cur) * 0.12 + 1);
+    ById('modal-bar').style.width = cur.toFixed(1) + '%';
+  }, intervalMs);
+}
+function stopModalAnimation(){
+  if(MODAL.timer){ clearInterval(MODAL.timer); MODAL.timer = null; }
+}
+
+// ── Refresh All Tokens ──
+async function refreshAllTokens(){
+  if(!S.connected){alert('请先连接 CPA');return;}
+  const btn=ById('btn-refresh-all');
+  const statusEl=ById('refresh-status');
+  const panel=ById('refresh-results-panel');
+
+  if(btn) btn.disabled=true;
+  if(panel) panel.innerHTML='';
+  if(statusEl){statusEl.style.color='var(--text2)';statusEl.textContent='';}
+
+  showModal('刷新全部 Token', '正在快照当前状态…');
+  updateModal(5);
+
+  // Snapshot state BEFORE refresh so we can diff afterward
+  let before=new Map();
+  try{
+    const fr=await api('GET','/auth-files');
+    (fr.files||[]).forEach(f=>before.set(f.name||f.id,{
+      status:f.status, status_message:f.status_message||'', disabled:f.disabled
+    }));
+  }catch{}
+
+  try{
+    const r=await api('POST','/auth-files/refresh-all-tokens');
+    const queued=r.queued||0;
+    updateModal(15, `⚡ 已触发刷新 ${queued} 个凭证，等待服务器完成…`);
+    animateModalProgress(15, 85, 1500);
+
+    // Poll twice: once at 5s (quick failures show up), once at 12s (slower successes)
+    const pollAndShow=(isFinal)=>async()=>{
+      try{
+        const fr=await api('GET','/auth-files');
+        const after=fr.files||[];
+        S.files=after;
+        // Update dashboard stats quietly
+        const healthy=after.filter(f=>['active','ready'].includes(f.status)&&!f.disabled).length;
+        const disabled=after.filter(f=>f.disabled).length;
+        const errored=after.filter(f=>!['active','ready'].includes(f.status)&&!f.disabled&&f.status).length;
+        const relogin=after.filter(f=>needsRelogin(f)).length;
+        setText('s-total',after.length);setText('s-healthy',healthy);setText('s-error',errored);
+        setText('s-disabled',disabled);setText('s-relogin',relogin);
+
+        if(S.currentTab==='files') renderFilesTable();
+
+        if(isFinal){
+          stopModalAnimation();
+          showRefreshResults(before,after,queued,statusEl);
+        }
+      }catch(e){
+        if(isFinal){
+          stopModalAnimation();
+          finishModal('✗ 重载失败: '+e.message);
+          if(statusEl){statusEl.style.color='var(--danger)';statusEl.textContent='✗ 重载失败: '+e.message;}
+        }
+      }
+    };
+
+    setTimeout(pollAndShow(false), 5000);   // early pass
+    setTimeout(pollAndShow(true),  12000);  // final pass with full results
+
+  }catch(e){
+    stopModalAnimation();
+    finishModal('✗ 触发失败: '+e.message);
+    if(statusEl){statusEl.style.color='var(--danger)';statusEl.textContent='✗ 触发失败: '+e.message;}
+  }finally{
+    if(btn) setTimeout(()=>btn.disabled=false,3000);
+  }
+}
+
+// Build and display the per-account refresh result breakdown.
+function showRefreshResults(before,after,queued,statusEl){
+  // Categorise each file by its post-refresh state vs pre-refresh state
+  const groups={
+    success:[],   // was error/problem, now active/ready
+    recovered:[],// was OK before, still OK (unchanged healthy)
+    relogin:[],  // needs full re-login (refresh_token_reused etc.)
+    failed:[],   // has error/status_message but not relogin
+    skipped:[],  // disabled
+  };
+
+  for(const f of after){
+    const name=f.name||f.id;
+    const prev=before.get(name)||{status:'',status_message:'',disabled:false};
+    if(f.disabled){groups.skipped.push({f,prev});continue;}
+    if(needsRelogin(f)){groups.relogin.push({f,prev});continue;}
+    const hasError=f.status_message||(f.status&&!['active','ready'].includes(f.status)&&f.status!=='disabled');
+    if(hasError){groups.failed.push({f,prev});continue;}
+    const wasError=prev.status_message||(prev.status&&!['active','ready'].includes(prev.status)&&prev.status!=='disabled');
+    if(wasError){groups.success.push({f,prev});} // recovered!
+    else{groups.recovered.push({f,prev});}
+  }
+
+  const ok=groups.success.length+groups.recovered.length;
+  const bad=groups.relogin.length+groups.failed.length;
+
+  const summaryText=`刷新完成：✓ ${ok} 个正常  ⚠ ${groups.relogin.length} 个需重登录  ✗ ${groups.failed.length} 个错误  → ${groups.skipped.length} 个已跳过`;
+  finishModal(summaryText, bad>0?'展开下方各分组查看详情':'所有账号均正常');
+  if(statusEl){
+    statusEl.style.color=bad>0?'var(--warn)':'var(--accent2)';
+    statusEl.textContent=summaryText;
+  }
+  // Show brief summary in files tab if currently active
+  if(S.currentTab==='files'){
+    const type=bad>0?'warn':'success';
+    showAlert('files-alert',type,summaryText+'　<a href="#" onclick="switchTab(\'dashboard\');return false" style="color:inherit;text-decoration:underline">查看详情 →</a>');
+    setTimeout(()=>clearAlert('files-alert'),15000);
+  }
+
+  const panel=ById('refresh-results-panel');
+  if(!panel)return;
+
+  function makeSection(title,items,headerCls,renderRow){
+    if(!items.length)return'';
+    const id='rr-'+Math.random().toString(36).slice(2);
+    const rows=items.map(renderRow).join('');
+    return `<div class="rr-card" id="${id}">
+      <div class="rr-header ${headerCls}" onclick="this.closest('.rr-card').classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        ${title} <span class="badge" style="background:rgba(255,255,255,.15);color:inherit;font-size:.72rem">${items.length}</span>
+        <span class="rr-chevron">▼</span>
+      </div>
+      <div class="rr-body">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>文件名 / 邮箱</th><th>刷新前</th><th>刷新后</th><th>错误信息</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function statusBadgeSmall(status,msg,disabled){
+    if(disabled)return'<span class="badge badge-gray">禁用</span>';
+    const lower=(msg||'').toLowerCase();
+    if(RELOGIN_MSGS.some(k=>lower.includes(k)))return'<span class="badge badge-orange">需重登录</span>';
+    if(status==='active')return'<span class="badge badge-green">active</span>';
+    if(status==='ready') return'<span class="badge badge-blue">ready</span>';
+    if(status==='error') return'<span class="badge badge-red">error</span>';
+    if(status)return`<span class="badge badge-yellow">${esc(status)}</span>`;
+    return'<span class="badge badge-gray">未知</span>';
+  }
+
+  function rowFn({f,prev}){
+    const name=f.name||f.id;
+    const label=f.email||name;
+    const msg=f.status_message||'';
+    return `<tr>
+      <td class="text-xs" title="${esc(name)}">${esc(label)}</td>
+      <td>${statusBadgeSmall(prev.status,prev.status_message,prev.disabled)}</td>
+      <td>${statusBadgeSmall(f.status,f.status_message,f.disabled)}</td>
+      <td class="text-xs" style="color:var(--warn);max-width:280px">${esc(msg)||'-'}</td>
+    </tr>`;
+  }
+
+  panel.innerHTML=[
+    makeSection('⚠ 需要重新登录（refresh token 已失效，请重新 OAuth）',groups.relogin,'rr-header-relogin',rowFn),
+    makeSection('✗ 刷新失败（其他错误）',groups.failed,'rr-header-error',rowFn),
+    makeSection('✓ 刷新成功（从错误状态恢复）',groups.success,'rr-header-success',rowFn),
+    makeSection('→ 已跳过（禁用账号）',groups.skipped,'rr-header-skip',rowFn),
+  ].join('');
+
+  // Auto-expand the first non-empty error section
+  const firstBad=panel.querySelector('.rr-header-relogin,.rr-header-error');
+  if(firstBad){
+    firstBad.closest('.rr-card').classList.add('open');
+    firstBad.nextElementSibling.classList.add('open');
+  }
+}
+
+function toggleAutoRefresh(enabled){
+  if(S.autoRefreshTimer){clearInterval(S.autoRefreshTimer);S.autoRefreshTimer=null;}
+  if(enabled&&S.connected) S.autoRefreshTimer=setInterval(()=>{if(S.connected)loadDashboard();},30000);
+}
+
+// ── Quota ──
+async function loadQuota(){
+  if(!S.connected){showAlert('quota-alert','error','请先连接 CPA');return;}
+  const n=S.files.filter(f=>(f.provider||'').toLowerCase()==='codex'&&!f.disabled).length||'?';
+  showModal('查询 Codex 配额', `并发查询 ${n} 个账号额度，请稍候（通常需要 10-30 秒）…`);
+  animateModalProgress(5, 90, 2000);
+  ById('quota-tbody').innerHTML=''; ById('quota-summary').innerHTML='';
+  const agg=ById('quota-aggregate'); if(agg) agg.classList.add('hidden');
+  try{
+    const data=await api('GET','/codex-quota');
+    stopModalAnimation();
+    renderQuotaSummary(data.summary||{});
+    renderQuotaAggregate(data.entries||[]);
+    renderQuotaTable(data.entries||[]);
+    clearAlert('quota-alert');
+    const s=data.summary||{};
+    finishModal(
+      `查询完成：${s.success||0} 个成功  ${s.failed||0} 个失败  ${s.disabled||0} 个禁用`,
+      (s.failed||0)>0?'⚠ 有账号失败——若显示"需刷新"，请先刷新全部Token后重查配额':''
+    );
+  }catch(e){
+    stopModalAnimation();
+    finishModal('查询失败：'+e.message);
+    showAlert('quota-alert','error','查询失败: '+e.message);
+  }
+}
+
+// Refresh tokens first, then re-query quota
+async function refreshThenLoadQuota(){
+  if(!S.connected){alert('请先连接 CPA');return;}
+  showModal('刷新Token后重查配额', '步骤 1/2 — 正在刷新全部 Token…');
+  animateModalProgress(5, 45, 1500);
+  try{
+    const r=await api('POST','/auth-files/refresh-all-tokens');
+    stopModalAnimation();
+    updateModal(50, `步骤 2/2 — Token 已触发刷新（${r.queued} 个），等待完成后查询配额…`);
+    // Wait for tokens to refresh before querying quota
+    await new Promise(res=>setTimeout(res, 8000));
+    animateModalProgress(50, 90, 1500);
+    const data=await api('GET','/codex-quota');
+    stopModalAnimation();
+    renderQuotaSummary(data.summary||{});
+    renderQuotaAggregate(data.entries||[]);
+    renderQuotaTable(data.entries||[]);
+    clearAlert('quota-alert');
+    const s=data.summary||{};
+    finishModal(`完成：${s.success||0} 个账号有额度  ${s.failed||0} 个仍失败`, (s.failed||0)>0?'仍失败的账号可能需要重新 OAuth 登录':'');
+  }catch(e){
+    stopModalAnimation();
+    finishModal('失败：'+e.message);
+  }
+}
+
+function renderQuotaAggregate(entries){
+  const agg=ById('quota-aggregate');
+  if(!agg) return;
+  const active=entries.filter(e=>!e.disabled&&!e.error&&e.primary_window);
+  if(!active.length){ agg.classList.add('hidden'); return; }
+
+  const above50 =active.filter(e=>e.primary_window.remaining_percent>50).length;
+  const mid     =active.filter(e=>e.primary_window.remaining_percent>20&&e.primary_window.remaining_percent<=50).length;
+  const low     =active.filter(e=>e.primary_window.remaining_percent>0 &&e.primary_window.remaining_percent<=20).length;
+  const empty   =active.filter(e=>e.primary_window.remaining_percent===0).length;
+  const failed  =entries.filter(e=>!e.disabled&&e.error).length;
+  const disabled=entries.filter(e=>e.disabled).length;
+  const total   =entries.length;
+  const avgRem  =active.length?Math.round(active.reduce((s,e)=>s+e.primary_window.remaining_percent,0)/active.length):0;
+
+  // Distribution bar widths
+  const T=Math.max(total,1);
+  const w=(n)=>((n/T)*100).toFixed(1)+'%';
+
+  agg.classList.remove('hidden');
+  agg.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+      <span style="font-size:.85rem;font-weight:700">配额总览</span>
+      <span class="text-xs text-muted">共 ${total} 个账号 · 平均剩余 <b style="color:var(--accent2)">${avgRem}%</b></span>
+    </div>
+    <div class="quota-dist-bar" title="配额健康分布">
+      <div class="quota-dist-seg" style="width:${w(above50)};background:var(--accent2)" title=">50% 剩余：${above50} 个"></div>
+      <div class="quota-dist-seg" style="width:${w(mid)};background:var(--warn)" title="20-50% 剩余：${mid} 个"></div>
+      <div class="quota-dist-seg" style="width:${w(low)};background:var(--danger)" title="<20% 剩余：${low} 个"></div>
+      <div class="quota-dist-seg" style="width:${w(empty)};background:#4b5563" title="已耗尽：${empty} 个"></div>
+      <div class="quota-dist-seg" style="width:${w(failed)};background:rgba(249,115,22,.7)" title="查询失败/需刷新：${failed} 个"></div>
+      <div class="quota-dist-seg" style="width:${w(disabled)};background:#374151" title="已禁用：${disabled} 个"></div>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;font-size:.76rem">
+      <span><span style="color:var(--accent2)">■</span> &gt;50% <b>${above50}</b></span>
+      <span><span style="color:var(--warn)">■</span> 20-50% <b>${mid}</b></span>
+      <span><span style="color:var(--danger)">■</span> &lt;20% <b>${low}</b></span>
+      <span><span style="color:#4b5563">■</span> 耗尽 <b>${empty}</b></span>
+      <span><span style="color:#fb923c">■</span> 失败/需刷新 <b>${failed}</b></span>
+      <span><span style="color:#374151">■</span> 禁用 <b>${disabled}</b></span>
+    </div>
+    ${failed>0?`<div class="alert alert-warn" style="margin-top:10px;font-size:.8rem">
+      ⚠ <b>${failed}</b> 个账号显示"需刷新/错误"，原因：查询时 access_token 已过期（401）。
+      点击 <b>「🔁 刷新Token后重查配额」</b> 自动刷新令牌并重新查询，通常可以解决。
+      若仍失败，说明 refresh_token 也已失效，需要重新 OAuth 登录。
+    </div>`:''}
+  `;
+}
+
+function renderQuotaSummary(s){
+  ById('quota-summary').innerHTML=`
+    <div class="stat-card"><div class="num blue">${s.total||0}</div><div class="lbl">Codex 账号</div></div>
+    <div class="stat-card"><div class="num green">${s.success||0}</div><div class="lbl">查询成功</div></div>
+    <div class="stat-card"><div class="num red">${s.failed||0}</div><div class="lbl">查询失败</div></div>
+    <div class="stat-card"><div class="num yellow">${s.disabled||0}</div><div class="lbl">已禁用</div></div>
+    <div class="stat-card"><div class="num green">${s.idle_count||0}</div><div class="lbl">主窗口空闲</div></div>
+    <div class="stat-card"><div class="num green">${s.above_50pct_count||0}</div><div class="lbl">剩余 &gt;50%</div></div>
+    <div class="stat-card"><div class="num red">${s.below_20pct_count||0}</div><div class="lbl">剩余 &lt;20%</div></div>
+    <div class="stat-card"><div class="num blue">${s.avg_primary_remaining||0}<span style="font-size:.9rem">%</span></div><div class="lbl">平均剩余 (主)</div></div>
+  `;
+}
+
+// Find a named extra window from entry.extra_windows (partial name match, case-insensitive)
+function findExtraWindow(entry, namePart) {
+  if(!entry.extra_windows||!entry.extra_windows.length) return null;
+  const lp=namePart.toLowerCase();
+  return entry.extra_windows.find(w=>w.name.toLowerCase().includes(lp)) || null;
+}
+
+// Return a human label for a window given its window_minutes
+function windowTypeLabel(w) {
+  if(!w||!w.window_minutes) return '';
+  const m=w.window_minutes;
+  if(m >= 7*24*60-10) return '7天';     // ≥ ~7 days
+  if(m >= 24*60-10)   return '1天';     // ≥ ~1 day
+  if(m >= 60-1)       return `${Math.round(m/60)}h`;
+  return `${m}min`;
+}
+
+function renderQuotaTable(entries){
+  const tbody=ById('quota-tbody');
+  if(!entries.length){tbody.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text2)">暂无 Codex 授权文件</td></tr>';return;}
+  entries.sort((a,b)=>{
+    if(a.disabled&&!b.disabled)return 1;if(!a.disabled&&b.disabled)return -1;
+    const ra=a.primary_window?a.primary_window.remaining_percent:(a.error?-1:0);
+    const rb=b.primary_window?b.primary_window.remaining_percent:(b.error?-1:0);
+    return rb-ra;
+  });
+
+  // Determine which optional column groups to show across all entries
+  const hasSecondary = entries.some(e=>e.secondary_window!=null);
+  const hasCR        = entries.some(e=>findExtraWindow(e,'code review')!=null);
+  const hasOther     = entries.some(e=>(e.extra_windows||[]).some(w=>
+    !w.name.toLowerCase().includes('code review')&&!w.name.includes('长周期')));
+
+  // Show/hide optional <th> elements
+  ['quota-th-secondary','quota-th-secondary2','quota-th-secondary3'].forEach(id=>{
+    const el=ById(id); if(el) el.style.display=hasSecondary?'':'none';
+  });
+  ['quota-th-cr','quota-th-cr2','quota-th-cr3'].forEach(id=>{
+    const el=ById(id); if(el) el.style.display=hasCR?'':'none';
+  });
+  const othEl=ById('quota-th-other'); if(othEl) othEl.style.display=hasOther?'':'none';
+
+  tbody.innerHTML=entries.map(e=>{
+    const label=e.email||e.id;
+    const sb=e.disabled?'<span class="badge badge-gray">已禁用</span>':e.error?'<span class="badge badge-red">错误</span>':'<span class="badge badge-green">正常</span>';
+    const hasExtra=e.raw_meta&&(e.raw_meta.has_additional_rate_limits||(e.raw_meta.extra_rate_limit_keys||[]).length>0);
+    const noExtraHint=!hasExtra&&!e.error&&!e.disabled
+      ?`<span class="text-xs text-muted" title="wham API 未返回 additional_rate_limits，该账号可能无Code Review额度"> (无CR数据)</span>`:'';
+    const errNote=e.error?`<span class="text-xs" style="color:var(--warn)" title="${esc(e.error)}"> ⚠${e.refresh_status==='needs_refresh'?' 需刷新':''}</span>`:'';
+
+    // Build 3 cells for a QuotaWindow: bar+type-label | remaining% | reset-time
+    function windowCells(w, hide){
+      if(hide) return '';   // column group hidden globally
+      if(!w) return '<td style="color:var(--text3)">-</td><td>-</td><td>-</td>';
+      const pct=w.remaining_percent;
+      const cls=pct>50?'bar-green':pct>20?'bar-yellow':'bar-red';
+      const col=pct>50?'var(--accent2)':pct>20?'var(--warn)':'var(--danger)';
+      const typeLabel=windowTypeLabel(w);
+      const bar=`<div class="quota-bar-wrap">
+        <div class="progress"><div class="progress-inner ${cls}" style="width:${pct}%"></div></div>
+        <span class="text-xs text-muted">${w.used_percent}% 已用${typeLabel?` · <b>${typeLabel}</b>`:''}</span>
+      </div>`;
+      const rst=w.reset_in||(w.reset_at?new Date(w.reset_at*1000).toLocaleString('zh-CN'):'-');
+      return `<td>${bar}</td><td><span style="color:${col};font-weight:700">${pct}%</span></td><td class="text-xs text-muted">${rst}</td>`;
+    }
+
+    const crEntry=findExtraWindow(e,'code review');
+
+    // Other extra windows (not Code Review, not secondary-label)
+    const others=(e.extra_windows||[])
+      .filter(w=>!w.name.toLowerCase().includes('code review')&&!w.name.includes('长周期'));
+    const otherCells=hasOther?(others.length
+      ?`<td>${others.map(w=>{
+          const p=w.primary;if(!p)return'';
+          const col=p.remaining_percent>50?'var(--accent2)':p.remaining_percent>20?'var(--warn)':'var(--danger)';
+          const tl=windowTypeLabel(p);
+          return `<span class="text-xs" title="${esc(w.name)}" style="color:${col}">${esc(w.name)}: ${p.remaining_percent}%${tl?' ('+tl+')':''}</span>`;
+        }).join('<br>')}</td>`
+      :'<td class="text-muted text-xs">-</td>'):'';
+
+    return `<tr>
+      <td><span class="text-xs">${esc(label)}</span>${errNote}${noExtraHint}</td>
+      <td>${sb}</td>
+      ${windowCells(e.primary_window, false)}
+      ${windowCells(e.secondary_window, !hasSecondary)}
+      ${windowCells(crEntry?crEntry.primary:null, !hasCR)}
+      ${otherCells}
+    </tr>`;
+  }).join('');
+}
+
+// ── Auth Files ──
+const RELOGIN_MSGS=['unauthorized','refresh_token_reused','invalid_grant','session expired','sign in again'];
+function needsRelogin(f){
+  const msg=(f.status_message||'').toLowerCase();
+  return msg?RELOGIN_MSGS.some(k=>msg.includes(k)):false;
+}
+function hasProblem(f){
+  if(f.disabled||f.unavailable)return true;
+  if(f.status&&!['active','ready'].includes(f.status))return true;
+  return false;
+}
+
+async function loadFiles(){
+  if(!S.connected){showAlert('files-alert','error','请先连接 CPA');return;}
+  showAlert('files-alert','info','加载中…');
+  try{
+    const r=await api('GET','/auth-files');
+    S.files=r.files||[];
+    S.selectedNames.clear();
+    updateBatchBar();
+    renderFilesTable();
+    clearAlert('files-alert');
+  }catch(e){showAlert('files-alert','error','加载失败: '+e.message);}
+}
+
+function clearFilesFilter(){
+  ById('f-provider').value='';ById('f-email').value='';ById('f-status').value='';
+  renderFilesTable();
+}
+
+// ── Sort ──
+function sortFiles(col){
+  if(S.sortCol===col) S.sortDir=S.sortDir==='asc'?'desc':'asc';
+  else{S.sortCol=col;S.sortDir='asc';}
+  renderFilesTable();
+}
+
+function sortValue(f,col){
+  switch(col){
+    case 'name':    return (f.name||f.id||'').toLowerCase();
+    case 'provider':return (f.provider||'').toLowerCase();
+    case 'email':   return (f.email||'').toLowerCase();
+    case 'status':  return f.disabled?'zzz_disabled':(needsRelogin(f)?'zzz_relogin':(f.status||''));
+    case 'success': return -(f.success||0);
+    case 'failed':  return -(f.failed||0);
+    case 'last_refresh': return f.last_refresh?-(new Date(f.last_refresh).getTime()):Infinity;
+    default: return '';
+  }
+}
+
+function renderFilesTable(){
+  const fp=(ById('f-provider').value||'').trim().toLowerCase();
+  const fe=(ById('f-email').value||'').trim().toLowerCase();
+  const fs=ById('f-status').value||'';
+  let files=[...S.files];
+  if(fp) files=files.filter(f=>(f.provider||'').toLowerCase().includes(fp));
+  if(fe) files=files.filter(f=>(f.email||'').toLowerCase().includes(fe));
+  if(fs==='problem')  files=files.filter(hasProblem);
+  else if(fs==='relogin')  files=files.filter(needsRelogin);
+  else if(fs==='disabled') files=files.filter(f=>f.disabled);
+  else if(fs==='active')   files=files.filter(f=>f.status==='active'&&!f.disabled);
+  else if(fs==='ready')    files=files.filter(f=>f.status==='ready'&&!f.disabled);
+
+  // Sort
+  files.sort((a,b)=>{
+    const va=sortValue(a,S.sortCol), vb=sortValue(b,S.sortCol);
+    let cmp=0;
+    if(typeof va==='number'&&typeof vb==='number') cmp=va-vb;
+    else cmp=String(va).localeCompare(String(vb));
+    return S.sortDir==='asc'?cmp:-cmp;
+  });
+
+  // Update column header classes
+  document.querySelectorAll('#panel-files th.sortable').forEach(th=>{
+    th.classList.remove('sort-asc','sort-desc');
+    const col=th.getAttribute('onclick')?.match(/sortFiles\('(\w+)'\)/)?.[1];
+    if(col===S.sortCol) th.classList.add(S.sortDir==='asc'?'sort-asc':'sort-desc');
+  });
+
+  setText('files-count',`共 ${files.length} 条`);
+  const tbody=ById('files-tbody');
+  if(!files.length){tbody.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text2)">暂无数据</td></tr>';return;}
+
+  tbody.innerHTML=files.map(f=>{
+    const name=f.name||f.id||'';
+    const checked=S.selectedNames.has(name)?'checked':'';
+    const relogin=needsRelogin(f);
+    const sb=f.disabled?'<span class="badge badge-gray">禁用</span>'
+      :relogin?'<span class="badge badge-orange" title="需要重新 OAuth 登录">需重登录</span>'
+      :f.unavailable?'<span class="badge badge-yellow">不可用</span>'
+      :f.status==='active'?'<span class="badge badge-green">active</span>'
+      :f.status==='ready'?'<span class="badge badge-blue">ready</span>'
+      :f.status==='error'?'<span class="badge badge-red">error</span>'
+      :`<span class="badge badge-yellow">${esc(f.status||'?')}</span>`;
+    const msg=f.status_message||'';
+    const msgCell=msg?`<span class="status-msg text-xs" style="color:var(--warn)" title="${esc(msg)}">${esc(msg)}</span>`:'<span class="text-muted text-xs">-</span>';
+    const lr=f.last_refresh
+      ?new Date(f.last_refresh).toLocaleString('zh-CN')
+      :'<span style="color:var(--text3)" title="刷新从未成功 — 可能从未被刷新，或每次刷新都失败">—</span>';
+    const nra=f.next_retry_after
+      ?`<span class="text-xs text-muted" title="服务器计划在此时间重试">${new Date(f.next_retry_after).toLocaleString('zh-CN')}</span>`
+      :'<span class="text-muted text-xs">-</span>';
+    const rowBg=relogin?'background:rgba(249,115,22,.04)':hasProblem(f)?'background:rgba(239,68,68,.04)':'';
+    const jsName=jsStr(name);
+    const disableBtn=f.disabled
+      ?`<button class="btn btn-success btn-sm" onclick="patchStatus('${jsName}',false)">启</button>`
+      :`<button class="btn btn-warn btn-sm"    onclick="patchStatus('${jsName}',true)">禁</button>`;
+    return `<tr style="${rowBg}">
+      <td class="cb-col"><input type="checkbox" ${checked} onchange="toggleRow(this,'${name.replace(/'/g,"\\'")}')" data-name="${esc(name)}"></td>
+      <td class="text-xs" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(name)}">${esc(name)}</td>
+      <td><span class="badge badge-gray">${esc(f.provider||'-')}</span></td>
+      <td class="text-xs">${esc(f.email||'-')}</td>
+      <td>${sb}</td>
+      <td>${msgCell}</td>
+      <td class="green">${f.success||0}</td>
+      <td class="red">${f.failed||0}</td>
+      <td class="text-xs text-muted">${lr}</td>
+      <td>${nra}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="showAuthModels('${jsName}')" title="查看该账号当前已注册到 Model Registry 的模型列表">📋 查看</button></td>
+      <td class="flex gap-1">${disableBtn}<button class="btn btn-danger btn-sm" onclick="deleteFile('${name.replace(/'/g,"\\'")}')">删</button></td>
+    </tr>`;
+  }).join('');
+
+  const cbAll=ById('cb-all');
+  if(cbAll){
+    const allNames=files.map(f=>f.name||f.id||'');
+    const allChecked=allNames.length>0&&allNames.every(n=>S.selectedNames.has(n));
+    cbAll.checked=allChecked;
+    cbAll.indeterminate=!allChecked&&allNames.some(n=>S.selectedNames.has(n));
+  }
+}
+
+// Quick-select by category
+function quickSelect(type){
+  S.selectedNames.clear();
+  S.files.forEach(f=>{
+    const name=f.name||f.id||'';
+    if(!name)return;
+    if(type==='relogin'&&needsRelogin(f)) S.selectedNames.add(name);
+    else if(type==='problem'&&hasProblem(f)) S.selectedNames.add(name);
+  });
+  renderFilesTable();
+  updateBatchBar();
+}
+
+// Toggle row checkbox
+function toggleRow(cb,name){
+  if(cb.checked) S.selectedNames.add(name);
+  else S.selectedNames.delete(name);
+  updateBatchBar();
+  const cbAll=ById('cb-all');if(!cbAll)return;
+  const allCbs=document.querySelectorAll('#files-tbody input[type=checkbox]');
+  const checked=[...allCbs].filter(c=>c.checked).length;
+  cbAll.checked=checked===allCbs.length&&allCbs.length>0;
+  cbAll.indeterminate=checked>0&&checked<allCbs.length;
+}
+
+function toggleAll(cb){
+  document.querySelectorAll('#files-tbody input[type=checkbox]').forEach(c=>{
+    c.checked=cb.checked;
+    const name=c.dataset.name;
+    if(name) cb.checked?S.selectedNames.add(name):S.selectedNames.delete(name);
+  });
+  updateBatchBar();
+}
+
+function clearSelection(){
+  S.selectedNames.clear();
+  document.querySelectorAll('#files-tbody input[type=checkbox]').forEach(c=>c.checked=false);
+  const cbAll=ById('cb-all');if(cbAll){cbAll.checked=false;cbAll.indeterminate=false;}
+  updateBatchBar();
+}
+
+function updateBatchBar(){
+  const bar=ById('batch-bar');const cnt=ById('batch-count');
+  const n=S.selectedNames.size;
+  if(bar) bar.classList.toggle('hidden',n===0);
+  if(cnt) cnt.textContent=`${n} 项已选`;
+}
+
+// ── Per-file status toggle ──
+async function patchStatus(name,disabled){
+  try{
+    await api('PATCH','/auth-files/status',{name,disabled});
+    // Update in-place in S.files to avoid full reload flicker
+    const f=S.files.find(x=>(x.name||x.id)===name);
+    if(f){f.disabled=disabled;f.status=disabled?'disabled':'active';f.status_message=disabled?'disabled via management API':'';}
+    renderFilesTable();
+    showAlert('files-alert','success',`✓ ${name} 已${disabled?'禁用':'启用'}`);
+  }catch(e){showAlert('files-alert','error',`操作失败: ${e.message}`);}
+}
+
+// ── Batch status ──
+async function batchSetStatus(disabled){
+  const names=[...S.selectedNames];
+  if(!names.length)return;
+  const label=disabled?'禁用':'启用';
+  if(!confirm(`确认${label} ${names.length} 个账号？`))return;
+  let ok=0,fail=0;
+  for(const n of names){
+    try{await api('PATCH','/auth-files/status',{name:n,disabled});ok++;}
+    catch{fail++;}
+  }
+  showAlert('files-alert',fail?'warn':'success',`✓ ${label}完成：成功 ${ok} 个${fail?`，失败 ${fail} 个`:''}`);
+  loadFiles();
+}
+
+// ── Delete ──
+async function deleteFile(name){
+  if(!name||!confirm(`确认删除 ${name}？`))return;
+  try{await api('DELETE','/auth-files?name='+encodeURIComponent(name));showAlert('files-alert','success','✓ 已删除 '+name);loadFiles();}
+  catch(e){showAlert('files-alert','error','删除失败: '+e.message);}
+}
+
+async function batchDelete(){
+  const names=[...S.selectedNames];
+  if(!names.length)return;
+  if(!confirm(`确认删除 ${names.length} 个授权文件？此操作不可恢复。`))return;
+  let ok=0,fail=0;
+  for(const n of names){
+    try{await api('DELETE','/auth-files?name='+encodeURIComponent(n));ok++;}
+    catch{fail++;}
+  }
+  showAlert('files-alert',fail?'warn':'success',`✓ 删除完成：成功 ${ok} 个${fail?`，失败 ${fail} 个`:''}`);
+  loadFiles();
+}
+
+function handleDrop(e,resultId){e.preventDefault();e.currentTarget.classList.remove('drag');uploadFiles(e.dataTransfer.files,resultId);}
+
+async function uploadFiles(fileList,resultId){
+  if(!S.connected){alert('请先连接 CPA');return;}
+  if(!fileList||!fileList.length)return;
+  const el=ById(resultId);if(el)el.textContent=`上传 ${fileList.length} 个文件中…`;
+  let ok=0,fail=0,failNames=[];
+  for(const file of fileList){
+    if(!file.name.endsWith('.json'))continue;
+    try{await apiRaw('POST','/auth-files?name='+encodeURIComponent(file.name),await file.arrayBuffer(),'application/json');ok++;}
+    catch(e){fail++;failNames.push(file.name);console.error(file.name,e);}
+  }
+  if(el){
+    el.style.color=fail?'var(--warn)':'var(--accent2)';
+    el.textContent=`✓ 成功 ${ok} 个${fail?`，失败 ${fail} 个 (${failNames.slice(0,3).join(', ')}${failNames.length>3?'…':''})`:''}`
+  }
+  if(ok>0){S.files=[];setTimeout(loadFiles,800);}
+}
+
+// ── Usage ──
+async function loadUsage(){
+  if(!S.connected)return;
+  try{
+    const data=await api('GET','/auth-stats');
+    const el=ById('usage-summary');
+    const total=data.count||0,ts=data.total_success||0,tf=data.total_failed||0;
+    const rate=ts+tf>0?Math.round(ts/(ts+tf)*100):0;
+    el.innerHTML=`
+      <div class="stat-card"><div class="num blue">${total}</div><div class="lbl">授权总数</div></div>
+      <div class="stat-card"><div class="num green">${ts}</div><div class="lbl">累计成功</div></div>
+      <div class="stat-card"><div class="num red">${tf}</div><div class="lbl">累计失败</div></div>
+      <div class="stat-card"><div class="num ${rate>=90?'green':rate>=70?'yellow':'red'}">${rate}%</div><div class="lbl">总成功率</div></div>
+    `;
+    renderUsageTable(data.auths||[]);
+  }catch(e){console.error('load usage',e);}
+}
+
+function renderUsageTable(auths){
+  const tbody=ById('usage-tbody');
+  if(!auths.length){tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text2)">暂无数据</td></tr>';return;}
+  const sorted=[...auths].sort((a,b)=>(b.success+b.failed)-(a.success+a.failed));
+  tbody.innerHTML=sorted.map(a=>{
+    const sb=a.disabled?'<span class="badge badge-gray">禁用</span>'
+      :a.status==='active'?'<span class="badge badge-green">active</span>'
+      :a.status==='ready'?'<span class="badge badge-blue">ready</span>'
+      :`<span class="badge badge-yellow">${esc(a.status||'?')}</span>`;
+    const total=a.success+a.failed;
+    const rate=total>0?Math.round(a.success/total*100):0;
+    const rateColor=rate>=90?'var(--accent2)':rate>=70?'var(--warn)':'var(--danger)';
+    const rr=a.recent_requests||[];
+    const maxV=Math.max(...rr.map(b=>(b.success||0)+(b.failed||0)),1);
+    const bars=[...rr].reverse().slice(0,12).map(b=>{
+      const v=Math.round(((b.success||0)+(b.failed||0))/maxV*18);
+      return `<span style="display:inline-block;width:5px;height:${v||1}px;background:${b.failed?'var(--danger)':'var(--accent)'};margin-right:1px;vertical-align:bottom;border-radius:1px" title="${esc(b.time)}: ✓${b.success||0} ✗${b.failed||0}"></span>`;
+    }).join('');
+    return `<tr>
+      <td class="text-xs" title="${esc(a.id)}">${esc(a.email||a.id)}</td>
+      <td><span class="badge badge-gray">${esc(a.provider||'-')}</span></td>
+      <td>${sb}</td>
+      <td class="green">${a.success||0}</td>
+      <td class="red">${a.failed||0}</td>
+      <td><span style="color:${rateColor};font-weight:700">${rate}%</span></td>
+      <td>${bars}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── OAuth ──
+async function startCodexOAuth(){
+  if(!S.connected){showAlert('oauth-alert','error','请先连接 CPA');return;}
+  clearAlert('oauth-alert');
+  ById('oauth-status-box').innerHTML='';
+  ById('oauth-url-box').style.display='none';
+  ById('btn-codex-login').disabled=true;
+  ById('btn-codex-stop').style.display='inline-flex';
+  stopOAuthPoll();
+  try{
+    const r=await api('GET','/codex-auth-url?is_webui=1');
+    if(!r.state)throw new Error('无效响应');
+    S.oauthState=r.state;
+    const urlBox=ById('oauth-url-box');
+    urlBox.style.display='block';
+    urlBox.innerHTML=`<b>授权链接（已自动在新标签打开）:</b><br>${esc(r.url)}`;
+    window.open(r.url,'_blank');
+    ById('oauth-status-box').innerHTML='<div class="oauth-status oauth-pending">⏳ 等待用户完成授权…</div>';
+    pollOAuthStatus(r.state);
+  }catch(e){showAlert('oauth-alert','error','启动失败: '+e.message);resetOAuthUI();}
+}
+
+function pollOAuthStatus(state){
+  let attempts=0;
+  S.oauthPollTimer=setInterval(async()=>{
+    if(++attempts>60||S.oauthState!==state){
+      stopOAuthPoll();
+      if(S.oauthState===state) ById('oauth-status-box').innerHTML='<div class="oauth-status oauth-error">⏰ 超时：5分钟内未完成授权</div>';
+      resetOAuthUI();return;
+    }
+    try{
+      const r=await api('GET','/get-auth-status?state='+encodeURIComponent(state));
+      if(r.status==='ok'){stopOAuthPoll();ById('oauth-status-box').innerHTML='<div class="oauth-status oauth-success">✓ 授权完成，令牌已保存！</div>';resetOAuthUI();setTimeout(loadDashboard,1500);}
+      else if(r.status==='error'){stopOAuthPoll();ById('oauth-status-box').innerHTML=`<div class="oauth-status oauth-error">✗ 授权失败: ${esc(r.error||'未知错误')}</div>`;resetOAuthUI();}
+    }catch{}
+  },5000);
+}
+function stopOAuthPoll(){if(S.oauthPollTimer){clearInterval(S.oauthPollTimer);S.oauthPollTimer=null;}}
+function stopOAuth(){S.oauthState=null;stopOAuthPoll();ById('oauth-status-box').innerHTML='<div class="oauth-status oauth-pending" style="opacity:.7">⏹ 已停止</div>';resetOAuthUI();}
+function resetOAuthUI(){ById('btn-codex-login').disabled=false;ById('btn-codex-stop').style.display='none';}
+
+// ── Logs ──
+const LOG_LEVEL_RE=/\[(info|warn|error|debug)\s*\]/i;
+
+function classifyLogLine(line){
+  const m=line.match(LOG_LEVEL_RE);
+  if(!m)return'log-default';
+  switch(m[1].toLowerCase()){
+    case'info':  return'log-info';
+    case'warn':  return'log-warn';
+    case'error': return'log-error';
+    case'debug': return'log-debug';
+    default:     return'log-default';
+  }
+}
+
+async function loadLogs(reset=false){
+  if(!S.connected){setText('log-status','未连接');return;}
+  if(reset){S.logLines=[];S.logLatest=0;}
+  setText('log-status','加载中…');
+  try{
+    const qs=S.logLatest?`?limit=500&after=${S.logLatest}`:'?limit=500';
+    const data=await api('GET','/logs'+qs);
+    const newLines=data.lines||[];
+    if(newLines.length){
+      S.logLines=reset?newLines:[...S.logLines,...newLines];
+      if(S.logLatest===0||!reset){
+        S.logLatest=data['latest-timestamp']||S.logLatest;
+      }
+    }
+    setText('log-line-count',`共 ${data['line-count']||S.logLines.length} 行`);
+    setText('log-status',`更新于 ${new Date().toLocaleTimeString('zh-CN')}`);
+    applyLogFilter();
+  }catch(e){
+    setText('log-status','错误: '+e.message);
+    if(reset){
+      const box=ById('log-box');
+      if(box) box.innerHTML=`<span class="log-error">${esc(e.message)}</span>`;
+    }
+  }
+}
+
+function applyLogFilter(){
+  const search=(ById('log-search')?.value||'').toLowerCase();
+  const level=(ById('log-level-filter')?.value||'').toLowerCase();
+  const box=ById('log-box');
+  if(!box)return;
+
+  let lines=S.logLines;
+  if(level) lines=lines.filter(l=>l.toLowerCase().includes(`[${level}`));
+  if(search) lines=lines.filter(l=>l.toLowerCase().includes(search));
+
+  box.innerHTML=lines.map(l=>{
+    const cls=classifyLogLine(l);
+    return `<span class="${cls}">${esc(l)}</span>`;
+  }).join('\n');
+
+  if(S.logFollow) box.scrollTop=box.scrollHeight;
+}
+
+function toggleLogFollow(){
+  S.logFollow=!S.logFollow;
+  const btn=ById('btn-log-follow');
+  if(btn){btn.textContent=S.logFollow?'📌 跟随':'📌 已暂停';btn.style.background=S.logFollow?'':'var(--card2)';}
+  if(S.logFollow){const box=ById('log-box');if(box)box.scrollTop=box.scrollHeight;}
+}
+
+function toggleLogPoll(enabled){
+  if(S.logPollTimer){clearInterval(S.logPollTimer);S.logPollTimer=null;}
+  if(enabled&&S.connected) S.logPollTimer=setInterval(()=>loadLogs(false),10000);
+}
+
+async function clearLogs(){
+  if(!confirm('确认清空所有日志文件？此操作不可恢复。'))return;
+  try{
+    await api('DELETE','/logs');
+    S.logLines=[];S.logLatest=0;
+    const box=ById('log-box');if(box)box.innerHTML='';
+    setText('log-status','已清空');
+    setText('log-line-count','共 0 行');
+  }catch(e){setText('log-status','清空失败: '+e.message);}
+}
+
+// ── Token Stats ──
+
+function fmtTokens(n){
+  if(n==null||n===0)return'0';
+  if(n>=1e9)return(n/1e9).toFixed(2)+'B';
+  if(n>=1e6)return(n/1e6).toFixed(2)+'M';
+  if(n>=1e3)return(n/1e3).toFixed(1)+'K';
+  return String(n);
+}
+
+async function loadTokenStats(){
+  if(!S.connected)return;
+  try{
+    const data=await api('GET','/token-stats');
+    renderTokenStats(data);
+  }catch(e){
+    const el=ById('ts-alert');
+    if(el) showAlert('ts-alert','error','Token 统计加载失败: '+e.message);
+  }
+}
+
+function fmtUSD(v){
+  if(!v||v===0)return'$0.00';
+  if(v<0.001)return`$${(v*1000).toFixed(3)}m`;  // show in milli-dollars
+  if(v<1)    return`$${v.toFixed(4)}`;
+  return`$${v.toFixed(2)}`;
+}
+
+function renderTokenStats(data){
+  clearAlert('ts-alert');
+  const t=data.totals||{};
+  const td=data.today||{};
+  const startedAt=data.started_at?new Date(data.started_at*1000):null;
+  const uptime=startedAt?`统计自 ${startedAt.toLocaleString('zh-CN')}`:'';
+  setText('ts-uptime',uptime);
+
+  // ── Today's stats on dashboard ──
+  const todayPanel=ById('today-stats');
+  const todayGrid=ById('today-grid');
+  const todayDate=ById('today-date');
+  if(todayPanel){
+    const hasAny=(td.total_tokens||0)+(td.requests||0)+(td.failed_requests||0)>0;
+    todayPanel.classList.toggle('hidden',!hasAny);
+    if(todayDate) todayDate.textContent=td.date||'';
+    if(todayGrid) todayGrid.innerHTML=`
+      <div class="stat-card">
+        <div class="num blue">${fmtTokens(td.total_tokens)}</div>
+        <div class="lbl">今日 Tokens<br><span style="font-size:.7rem;color:var(--text3)">输入+输出合计</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="num green">${fmtTokens(td.input_tokens)}</div>
+        <div class="lbl">输入 Tokens</div>
+      </div>
+      <div class="stat-card">
+        <div class="num" style="color:#c084fc">${fmtTokens(td.output_tokens)}</div>
+        <div class="lbl">输出 Tokens</div>
+      </div>
+      <div class="stat-card">
+        <div class="num yellow">${fmtTokens(td.cached_tokens)}</div>
+        <div class="lbl">缓存命中<br><span style="font-size:.7rem;color:var(--text3)">上下文缓存</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="num" style="color:#a78bfa">${fmtTokens(td.reasoning_tokens)}</div>
+        <div class="lbl">推理 Tokens<br><span style="font-size:.7rem;color:var(--text3)">大模型思考过程</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="num" style="color:#34d399;font-size:1.3rem">${fmtUSD(td.estimated_usd)}</div>
+        <div class="lbl">预估费用<br><span style="font-size:.7rem;color:var(--text3)">按 OpenAI 官价</span></div>
+      </div>
+      <div class="stat-card"><div class="num green">${td.requests||0}</div><div class="lbl">今日请求</div></div>
+      <div class="stat-card"><div class="num red">${td.failed_requests||0}</div><div class="lbl">今日失败</div></div>
+    `;
+  }
+
+  // ── Usage tab summary cards (lifetime) ──
+  const sumEl=ById('ts-summary');
+  if(sumEl) sumEl.innerHTML=`
+    <div class="stat-card"><div class="num blue">${fmtTokens(t.total_tokens)}</div><div class="lbl">累计 Tokens</div></div>
+    <div class="stat-card"><div class="num green">${fmtTokens(t.input_tokens)}</div><div class="lbl">累计输入</div></div>
+    <div class="stat-card"><div class="num" style="color:#c084fc">${fmtTokens(t.output_tokens)}</div><div class="lbl">累计输出</div></div>
+    <div class="stat-card"><div class="num yellow">${fmtTokens(t.cached_tokens)}</div><div class="lbl">缓存命中</div></div>
+    <div class="stat-card"><div class="num" style="color:#a78bfa">${fmtTokens(t.reasoning_tokens)}</div><div class="lbl">推理 Tokens</div></div>
+    <div class="stat-card"><div class="num" style="color:#34d399;font-size:1.3rem">${fmtUSD(t.estimated_usd)}</div><div class="lbl">预估费用</div></div>
+    <div class="stat-card"><div class="num green">${t.requests||0}</div><div class="lbl">成功请求</div></div>
+    <div class="stat-card"><div class="num red">${t.failed_requests||0}</div><div class="lbl">失败请求</div></div>
+  `;
+
+  const tbody=ById('ts-tbody');
+  if(!tbody)return;
+  const entries=data.entries||[];
+  if(!entries.length){
+    tbody.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--text2)">暂无数据（等待首次请求）</td></tr>';
+    return;
+  }
+  tbody.innerHTML=entries.map(e=>{
+    const label=e.email||e.auth_id||'-';
+    const lu=e.last_used_at?new Date(e.last_used_at*1000).toLocaleString('zh-CN'):'-';
+    const total=e.total_tokens||0;
+    const totalBar=total>0?`<div class="progress" style="min-width:60px"><div class="progress-inner bar-green" style="width:${Math.min(100,total/(Math.max(...entries.map(x=>x.total_tokens||0))||1)*100)}%"></div></div>`:'';
+    return `<tr>
+      <td class="text-xs" title="${esc(e.auth_id)}">${esc(label)}</td>
+      <td><span class="badge badge-gray">${esc(e.provider||'-')}</span></td>
+      <td class="blue text-xs">${fmtTokens(e.input_tokens)}</td>
+      <td style="color:#c084fc" class="text-xs">${fmtTokens(e.output_tokens)}</td>
+      <td class="yellow text-xs">${fmtTokens(e.cached_tokens)}</td>
+      <td style="color:#a78bfa" class="text-xs">${fmtTokens(e.reasoning_tokens)}</td>
+      <td class="text-xs"><div style="display:flex;align-items:center;gap:6px">${totalBar}<b>${fmtTokens(total)}</b></div></td>
+      <td style="color:#34d399" class="text-xs">${fmtUSD(e.estimated_usd)}</td>
+      <td class="green text-xs">${e.requests||0}</td>
+      <td class="red text-xs">${e.failed_requests||0}</td>
+      <td class="text-xs text-muted">${lu}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function resetTokenStats(){
+  if(!confirm('确认重置 Token 统计计数？进程重启也会自动清零。'))return;
+  try{
+    await api('POST','/token-stats/reset');
+    await loadTokenStats();
+    showAlert('ts-alert','success','✓ Token 统计已重置');
+  }catch(e){showAlert('ts-alert','error','重置失败: '+e.message);}
+}
+
+// ── Duplicate Detection ──
+
+// ── Filename pattern scoring ──
+// Detects non-canonical filename markers and returns a penalty score.
+// Scores are additive: a file matching multiple patterns accumulates penalties.
+const FILENAME_PATTERNS = [
+  // OS-level copy suffixes: "name (1).json", "name (2).json", "name - Copy.json"
+  { re: /\s*\(\d+\)\s*\.json$/i,           penalty: 8,  label: 'OS复制后缀 (N)' },
+  { re: /\s*-\s*copy\s*(\(\d+\))?\s*\.json$/i, penalty: 8, label: 'OS复制后缀 Copy' },
+  // Run/backup timestamp suffixes:
+  //   -run002-20260411-161838  -run2-20260411_161838
+  { re: /-run\d+[-_]\d{8}[-_]\d{6}/i,      penalty: 5,  label: '运行时间戳 runNNN-DATE-TIME' },
+  //   -20260411-161838  -2026-04-11-161838
+  { re: /-\d{4}-?\d{2}-?\d{2}[-_]\d{6}/,   penalty: 5,  label: '日期时间戳 DATE-TIME' },
+  //   _20260411161838  (14-digit compact)
+  { re: /[_-]\d{14}(?=\.json$)/i,           penalty: 5,  label: '紧凑时间戳 14位数字' },
+  // Generic backup markers
+  { re: /[-_](bak|backup|old|tmp|temp)\b/i, penalty: 5,  label: '备份标记 bak/backup/old' },
+];
+
+function filenameScore(name) {
+  let penalty = 0;
+  for (const p of FILENAME_PATTERNS) {
+    if (p.re.test(name)) penalty += p.penalty;
+  }
+  return penalty > 0 ? -penalty : 3;
+}
+
+// Returns a short human-readable description of why the filename is penalized
+function explainFilename(name) {
+  const hits = FILENAME_PATTERNS.filter(p => p.re.test(name)).map(p => p.label);
+  if (!hits.length) return '';        // canonical, no annotation needed
+  return hits.join(' + ');
+}
+
+// Score a file: higher = better / preferred to keep
+function scoreFile(f){
+  if(f.disabled)               return -20;
+  if(needsRelogin(f))          return -10;
+  let s=0;
+  switch(f.status){
+    case'active': s=30; break;
+    case'ready':  s=20; break;
+    case'error':  s=0;  break;
+    default:      s=5;
+  }
+  // Recency bonus: up to +10 for freshly refreshed (within 1h)
+  if(f.last_refresh){
+    const ageH=(Date.now()-new Date(f.last_refresh).getTime())/3600000;
+    s+=Math.max(0, 10-ageH);
+  }
+  // Reliability bonus: success ratio up to +5
+  const tot=(f.success||0)+(f.failed||0);
+  if(tot>0) s+=Math.min(5,(f.success||0)/tot*5);
+  // Filename cleanliness: prefer canonical names over copies/backups
+  s+=filenameScore(f.name||f.id||'');
+  return s;
+}
+
+// Return the file that should be kept in a group
+function bestInGroup(files){
+  return files.reduce((best,f)=>scoreFile(f)>scoreFile(best)?f:best);
+}
+
+// Group S.files by email; return groups with >=2 files
+function detectDuplicates(){
+  const map={};
+  S.files.forEach(f=>{
+    const key=(f.email||'').toLowerCase().trim();
+    if(!key)return;
+    if(!map[key])map[key]=[];
+    map[key].push(f);
+  });
+  return Object.entries(map)
+    .filter(([,fs])=>fs.length>1)
+    .sort((a,b)=>b[1].length-a[1].length)
+    .map(([email,files])=>({email,files,best:bestInGroup(files)}));
+}
+
+// Show / hide the dup panel
+async function showDupPanel(){
+  if(!S.connected){alert('请先连接 CPA');return;}
+  // Ensure files are loaded first
+  if(!S.files.length) await loadFiles();
+  const card=ById('dup-card');
+  if(card){
+    card.classList.remove('hidden');
+    // Give DOM a tick to update, then scroll into view
+    setTimeout(()=>card.scrollIntoView({behavior:'smooth',block:'start'}),60);
+  }
+  renderDupPanel();
+}
+function hideDupPanel(){
+  const card=ById('dup-card');
+  if(card) card.classList.add('hidden');
+}
+
+// Status badge helper (same as main table but compact)
+function statusBadge(f){
+  if(f.disabled)      return'<span class="badge badge-gray">禁用</span>';
+  if(needsRelogin(f)) return'<span class="badge badge-orange">需重登录</span>';
+  if(f.unavailable)   return'<span class="badge badge-yellow">不可用</span>';
+  if(f.status==='active') return'<span class="badge badge-green">active</span>';
+  if(f.status==='ready')  return'<span class="badge badge-blue">ready</span>';
+  if(f.status==='error')  return'<span class="badge badge-red">error</span>';
+  return`<span class="badge badge-yellow">${esc(f.status||'?')}</span>`;
+}
+
+function renderDupPanel(){
+  const groups=detectDuplicates();
+  const totalDel=groups.reduce((n,g)=>n+g.files.length-1,0);
+
+  // Summary
+  const sumEl=ById('dup-summary');
+  if(sumEl) sumEl.textContent=groups.length
+    ?`发现 ${groups.length} 个重复账号，共 ${totalDel} 个冗余文件`
+    :'未发现重复账号 ✓';
+
+  // Clean-all button
+  const btn=ById('btn-clean-all-dups');
+  if(btn) btn.disabled=groups.length===0;
+
+  const cont=ById('dup-content');
+  if(!cont)return;
+
+  if(!groups.length){
+    cont.innerHTML='<p class="text-muted text-sm" style="text-align:center;padding:20px">✓ 所有账号的授权文件均不重复</p>';
+    return;
+  }
+
+  cont.innerHTML=groups.map((g,gi)=>{
+    const best=g.best;
+    const toDelete=g.files.filter(f=>(f.name||f.id)!==(best.name||best.id));
+    const bestLR=best.last_refresh?new Date(best.last_refresh).toLocaleString('zh-CN'):'-';
+
+    // Detail rows
+    const detailRows=g.files.map(f=>{
+      const name=f.name||f.id||'';
+      const isKeep=(name===(best.name||best.id));
+      const lr=f.last_refresh?new Date(f.last_refresh).toLocaleString('zh-CN'):'-';
+      const score=scoreFile(f).toFixed(1);
+      const fnScore=filenameScore(name);
+      const fnHint=explainFilename(name);
+      const keepBadge=isKeep?'<span class="dup-badge-keep">保留</span>':'<span class="dup-badge-del">删除</span>';
+      const scoreHint=`综合评分 ${score}${fnHint?' | 文件名: '+fnHint:''}`;
+      return `<tr style="${isKeep?'':'background:rgba(239,68,68,.04)'}">
+        <td class="text-xs" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(name)}">${esc(name)}</td>
+        <td>${statusBadge(f)}</td>
+        <td class="text-xs text-muted">${lr}</td>
+        <td class="text-xs">${esc(f.status_message||'-')}</td>
+        <td class="green text-xs">${f.success||0}</td>
+        <td class="red text-xs">${f.failed||0}</td>
+        <td class="text-xs text-muted" title="${esc(scoreHint)}">${score}${fnHint?` <span style="color:var(--warn);font-size:.68rem">(${esc(fnHint)})</span>`:''}</td>
+        <td>${keepBadge}</td>
+        <td>${isKeep?'':`<button class="btn btn-danger btn-sm" onclick="dupDeleteOne('${jsStr(name)}',${gi})">删</button>`}</td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="dup-group" id="dup-group-${gi}">
+      <div class="dup-group-header" onclick="toggleDupRow(${gi})">
+        <span class="text-xs" style="font-weight:700;color:var(--text)">${esc(g.email)}</span>
+        <span class="badge badge-red" style="font-size:.72rem">${g.files.length} 个文件</span>
+        <span class="text-xs text-muted">保留: <b style="color:var(--text)">${esc(best.name||best.id||'-')}</b></span>
+        <span class="text-xs text-muted">最后刷新: ${bestLR}</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();cleanGroup(${gi})">🗑 保留最优，删 ${toDelete.length} 个</button>
+        <span class="text-xs text-muted" style="margin-left:4px">▼</span>
+      </div>
+      <div class="dup-group-body" id="dup-body-${gi}">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>文件名</th><th>状态</th><th>最后刷新</th><th>错误信息</th>
+              <th>成功</th><th>失败</th><th>评分</th><th></th><th>操作</th>
+            </tr></thead>
+            <tbody>${detailRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleDupRow(gi){
+  const body=ById('dup-body-'+gi);
+  if(body) body.classList.toggle('open');
+}
+
+// Delete a single file from within the dup panel
+async function dupDeleteOne(name,gi){
+  if(!confirm(`确认删除 ${name}？`))return;
+  try{
+    await api('DELETE','/auth-files?name='+encodeURIComponent(name));
+    // Remove from S.files and re-render
+    S.files=S.files.filter(f=>(f.name||f.id)!==name);
+    renderFilesTable();
+    renderDupPanel();
+    // Auto-collapse group if now only 1 file remains
+  }catch(e){showAlert('dup-alert','error','删除失败: '+e.message);}
+}
+
+// Delete all non-best files in a group
+async function cleanGroup(gi){
+  const groups=detectDuplicates();
+  const g=groups[gi];
+  if(!g)return;
+  const best=g.best;
+  const toDelete=g.files.filter(f=>(f.name||f.id)!==(best.name||best.id));
+  if(!toDelete.length)return;
+  if(!confirm(`确认删除 ${g.email} 的 ${toDelete.length} 个冗余文件，仅保留 "${best.name||best.id}"？`))return;
+  let ok=0,fail=0;
+  for(const f of toDelete){
+    const n=f.name||f.id;
+    try{await api('DELETE','/auth-files?name='+encodeURIComponent(n));ok++;S.files=S.files.filter(x=>(x.name||x.id)!==n);}
+    catch{fail++;}
+  }
+  showAlert('dup-alert',fail?'warn':'success',`✓ ${g.email}：删除 ${ok} 个${fail?`，失败 ${fail} 个`:''}`);
+  renderFilesTable();
+  renderDupPanel();
+}
+
+// Clean all duplicate groups at once
+async function cleanAllDups(){
+  const groups=detectDuplicates();
+  if(!groups.length)return;
+  const totalDel=groups.reduce((n,g)=>n+g.files.length-1,0);
+  if(!confirm(`确认清理全部 ${groups.length} 个重复账号？将删除 ${totalDel} 个冗余文件，每个账号仅保留评分最高的文件。`))return;
+  const btn=ById('btn-clean-all-dups');
+  if(btn)btn.disabled=true;
+  let totalOk=0,totalFail=0;
+  for(const g of groups){
+    const best=g.best;
+    const toDelete=g.files.filter(f=>(f.name||f.id)!==(best.name||best.id));
+    for(const f of toDelete){
+      const n=f.name||f.id;
+      try{await api('DELETE','/auth-files?name='+encodeURIComponent(n));totalOk++;S.files=S.files.filter(x=>(x.name||x.id)!==n);}
+      catch{totalFail++;}
+    }
+  }
+  showAlert('dup-alert',totalFail?'warn':'success',
+    `✓ 清理完成：成功删除 ${totalOk} 个冗余文件${totalFail?`，失败 ${totalFail} 个`:''}`);
+  renderFilesTable();
+  renderDupPanel();
+}
+</script>
+</body>
+</html>

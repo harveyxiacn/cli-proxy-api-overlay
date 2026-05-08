@@ -1,0 +1,66 @@
+diff --git a/internal/api/handlers/management/config_basic.go b/internal/api/handlers/management/config_basic.go
+index f77e91e9..3bf53545 100644
+--- a/internal/api/handlers/management/config_basic.go
++++ b/internal/api/handlers/management/config_basic.go
+@@ -193,6 +193,34 @@ func (h *Handler) PutUsageStatisticsEnabled(c *gin.Context) {
+ 	h.updateBoolField(c, func(v bool) { h.cfg.UsageStatisticsEnabled = v })
+ }
+ 
++// DisableCooling
++func (h *Handler) GetDisableCooling(c *gin.Context) {
++	c.JSON(200, gin.H{"disable-cooling": h.cfg.DisableCooling})
++}
++func (h *Handler) PutDisableCooling(c *gin.Context) {
++	h.updateBoolField(c, func(v bool) { h.cfg.DisableCooling = v })
++}
++
++// AuthAutoRefreshWorkers
++func (h *Handler) GetAuthAutoRefreshWorkers(c *gin.Context) {
++	c.JSON(200, gin.H{"auth-auto-refresh-workers": h.cfg.AuthAutoRefreshWorkers})
++}
++func (h *Handler) PutAuthAutoRefreshWorkers(c *gin.Context) {
++	var body struct {
++		Value *int `json:"value"`
++	}
++	if errBindJSON := c.ShouldBindJSON(&body); errBindJSON != nil || body.Value == nil {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
++		return
++	}
++	value := *body.Value
++	if value < 0 {
++		value = 0
++	}
++	h.cfg.AuthAutoRefreshWorkers = value
++	h.persist(c)
++}
++
+ // UsageStatisticsEnabled
+ func (h *Handler) GetLoggingToFile(c *gin.Context) {
+ 	c.JSON(200, gin.H{"logging-to-file": h.cfg.LoggingToFile})
+@@ -263,6 +291,26 @@ func (h *Handler) PutRequestRetry(c *gin.Context) {
+ 	h.updateIntField(c, func(v int) { h.cfg.RequestRetry = v })
+ }
+ 
++// Max retry credentials
++func (h *Handler) GetMaxRetryCredentials(c *gin.Context) {
++	c.JSON(200, gin.H{"max-retry-credentials": h.cfg.MaxRetryCredentials})
++}
++func (h *Handler) PutMaxRetryCredentials(c *gin.Context) {
++	var body struct {
++		Value *int `json:"value"`
++	}
++	if errBindJSON := c.ShouldBindJSON(&body); errBindJSON != nil || body.Value == nil {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
++		return
++	}
++	value := *body.Value
++	if value < 0 {
++		value = 0
++	}
++	h.cfg.MaxRetryCredentials = value
++	h.persist(c)
++}
++
+ // Max retry interval
+ func (h *Handler) GetMaxRetryInterval(c *gin.Context) {
+ 	c.JSON(200, gin.H{"max-retry-interval": h.cfg.MaxRetryInterval})

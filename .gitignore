@@ -1,0 +1,138 @@
+# =============================================================================
+#  CLIProxyAPI overlay project — .gitignore
+#  We track ONLY: docs/, frontend/ (source), overlay/, top-level scripts.
+#  We DO NOT track: upstream CPA source, build artifacts, secrets, VPS info.
+# =============================================================================
+
+# ── Upstream CPA source (downloaded fresh per upgrade) ────────────────────────
+# This is router-for-me/CLIProxyAPI vanilla source. Never commit it; always
+# re-download from upstream releases when needed (see docs/MAINTAINING.md §6.2).
+CLIProxyAPI/
+
+# ── Build artifacts ───────────────────────────────────────────────────────────
+cli-proxy-api*.exe
+cli-proxy-api-linux
+cli-proxy-api-linux-*
+cli-proxy-api-darwin*
+cli-proxy-api-windows*
+
+# ── Frontend build output ─────────────────────────────────────────────────────
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+frontend/.cache/
+frontend/*.tsbuildinfo
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+NUL
+nul
+
+# ── Sensitive: do NOT commit any of these even by accident ───────────────────
+# Management secret keys / API keys / OAuth tokens / refresh tokens
+config.yaml
+config.yml
+config.local.yaml
+auths/
+auth-files/
+*.pem
+*.key
+*.crt
+id_rsa*
+id_ed25519*
+
+# Per-instance state that shouldn't leak between machines
+data/
+logs/
+*.jsonl
+*.log
+*.bak.*
+*.tmp
+
+# Anything matching common secret patterns in filenames
+*secret*
+*credentials*
+*token*.json
+*_password*
+
+# ── Overlay work artifacts (generated, not source) ────────────────────────────
+overlay/files/internal/api/frontend_dist/
+overlay/CLIProxyAPI.bak*
+
+# ── Local overlay snapshots (re-run apply-overlay.bat to regenerate) ─────────
+# These ARE tracked normally if user wants — comment back in if needed:
+# overlay/files/
+
+# ── Memory / scratch ──────────────────────────────────────────────────────────
+.claude-scratch/
+*.scratch.md
+TODO.local.md
+
+# ── Project-root files that aren't part of the overlay ────────────────────────
+# Old upstream README copies (current upstream README is in CLIProxyAPI/ when
+# fetched). Our README.md at root replaces them.
+/README_CN.md
+/README_JA.md
+
+# Sample / management HTML bundles unrelated to our React panel
+/management.html
+
+# Random utility scripts not part of overlay
+/openai_register3.py
+/us-west-vps-vpn-sub2api-guide.md
+
+# Random zip dumps
+*.zip
+codex_*.zip
+codex.zip
+output.zip
+
+# ── SENSITIVE: real auth files with refresh_token MUST NEVER commit ──────────
+/codex/
+/codex_*/
+codex/*.json
+codex_*.zip
+/output/
+/output[0-9]*/
+output*/accounts.txt
+output*/auth*.txt
+**/accounts.txt
+*refresh_token*.txt
+*refresh_token*.json
+
+# ── runtime persistence (token stats, request history, audit log)  ───────────
+/data/
+data/*.jsonl
+data/*.json
+
+# ── Embedded other-project git repos ─────────────────────────────────────────
+/Codex-Manager/
+
+# ── Build artifacts and side-deployment dirs ─────────────────────────────────
+/artifacts/
+/static/
+
+# ── Python tooling junk ──────────────────────────────────────────────────────
+/__pycache__/
+*.pyc
+*.pyo
+
+# ── Config backups (may contain real secrets) ────────────────────────────────
+/config.yaml.bak
+/config.yaml.bak.*
+
+# ── npm/yarn/pnpm extras ──────────────────────────────────────────────────────
+.npmrc
+.yarnrc
+.pnpmfile.cjs
+
+# ── Go ────────────────────────────────────────────────────────────────────────
+*.exe~
+*.test
+*.prof
+coverage.out

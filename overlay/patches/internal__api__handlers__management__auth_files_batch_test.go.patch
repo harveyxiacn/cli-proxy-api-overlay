@@ -1,0 +1,66 @@
+diff --git a/internal/api/handlers/management/auth_files_batch_test.go b/internal/api/handlers/management/auth_files_batch_test.go
+index 44cdbd5b..952f8bdc 100644
+--- a/internal/api/handlers/management/auth_files_batch_test.go
++++ b/internal/api/handlers/management/auth_files_batch_test.go
+@@ -2,6 +2,7 @@ package management
+ 
+ import (
+ 	"bytes"
++	"context"
+ 	"encoding/json"
+ 	"mime/multipart"
+ 	"net/http"
+@@ -195,3 +196,53 @@ func TestDeleteAuthFile_BatchQuery(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestPostStatusAuthFilesBatch_UpdatesMultipleFiles(t *testing.T) {
++	t.Setenv("MANAGEMENT_PASSWORD", "")
++	gin.SetMode(gin.TestMode)
++
++	manager := coreauth.NewManager(nil, nil, nil)
++	for _, auth := range []*coreauth.Auth{
++		{ID: "auth-alpha", FileName: "alpha.json", Provider: "codex", Status: coreauth.StatusActive},
++		{ID: "auth-beta", FileName: "beta.json", Provider: "codex", Status: coreauth.StatusActive},
++	} {
++		if _, err := manager.Register(context.Background(), auth); err != nil {
++			t.Fatalf("failed to register auth %s: %v", auth.ID, err)
++		}
++	}
++
++	h := NewHandlerWithoutConfigFilePath(&config.Config{}, manager)
++
++	body := bytes.NewBufferString(`{"names":["alpha.json","auth-beta"],"disabled":true}`)
++	rec := httptest.NewRecorder()
++	ctx, _ := gin.CreateTestContext(rec)
++	ctx.Request = httptest.NewRequest(http.MethodPost, "/v0/management/auth-files/status-batch", body)
++	ctx.Request.Header.Set("Content-Type", "application/json")
++
++	h.PostStatusAuthFilesBatch(ctx)
++
++	if rec.Code != http.StatusOK {
++		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
++	}
++
++	var payload map[string]any
++	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
++		t.Fatalf("failed to decode response: %v", err)
++	}
++	if got, ok := payload["updated"].(float64); !ok || int(got) != 2 {
++		t.Fatalf("expected updated=2, got %#v", payload["updated"])
++	}
++	if got, ok := payload["failed"].(float64); !ok || int(got) != 0 {
++		t.Fatalf("expected failed=0, got %#v", payload["failed"])
++	}
++
++	for _, id := range []string{"auth-alpha", "auth-beta"} {
++		auth, ok := manager.GetByID(id)
++		if !ok {
++			t.Fatalf("expected auth %s to exist", id)
++		}
++		if !auth.Disabled || auth.Status != coreauth.StatusDisabled {
++			t.Fatalf("expected auth %s to be disabled, got disabled=%v status=%q", id, auth.Disabled, auth.Status)
++		}
++	}
++}

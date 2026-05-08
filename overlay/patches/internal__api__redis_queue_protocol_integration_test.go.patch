@@ -1,0 +1,38 @@
+diff --git a/internal/api/redis_queue_protocol_integration_test.go b/internal/api/redis_queue_protocol_integration_test.go
+index 93bfeb86..62a66555 100644
+--- a/internal/api/redis_queue_protocol_integration_test.go
++++ b/internal/api/redis_queue_protocol_integration_test.go
+@@ -398,7 +398,7 @@ func TestRedisProtocol_AUTH_IPBan_BlocksCorrectPasswordDuringBan(t *testing.T) {
+ 		}
+ 		if msg, err := readTestRESPError(reader); err != nil {
+ 			t.Fatalf("failed to read AUTH error: %v", err)
+-		} else if msg != "ERR invalid management key" {
++		} else if !strings.HasPrefix(msg, "ERR invalid management key") {
+ 			t.Fatalf("unexpected AUTH error at attempt %d: %q", i+1, msg)
+ 		}
+ 	}
+@@ -428,7 +428,7 @@ func TestRedisProtocol_AUTH_IPBan_BlocksCorrectPasswordDuringBan(t *testing.T) {
+ 	}
+ }
+ 
+-func TestRedisProtocol_LOCALHOST_AUTH_IPBan_BlocksCorrectPasswordDuringBan(t *testing.T) {
++func TestRedisProtocol_LOCALHOST_AUTH_FailuresDoNotBanCorrectPassword(t *testing.T) {
+ 	const managementPassword = "test-management-password"
+ 
+ 	t.Setenv("MANAGEMENT_PASSWORD", managementPassword)
+@@ -466,11 +466,11 @@ func TestRedisProtocol_LOCALHOST_AUTH_IPBan_BlocksCorrectPasswordDuringBan(t *te
+ 	if errWrite := writeTestRESPCommand(conn, "AUTH", managementPassword); errWrite != nil {
+ 		t.Fatalf("failed to write AUTH command with correct password: %v", errWrite)
+ 	}
+-	msg, err := readTestRESPError(reader)
++	msg, err := readTestRESPSimpleString(reader)
+ 	if err != nil {
+-		t.Fatalf("failed to read AUTH banned error for correct password: %v", err)
++		t.Fatalf("failed to read AUTH response for correct password: %v", err)
+ 	}
+-	if !strings.HasPrefix(msg, "ERR IP banned due to too many failed attempts. Try again in") {
+-		t.Fatalf("unexpected AUTH banned error for correct password: %q", msg)
++	if msg != "OK" {
++		t.Fatalf("unexpected AUTH response for correct password: %q", msg)
+ 	}
+ }

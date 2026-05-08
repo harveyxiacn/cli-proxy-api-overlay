@@ -1,0 +1,22 @@
+diff --git a/internal/registry/model_definitions_test.go b/internal/registry/model_definitions_test.go
+index bb2fc460..37aca884 100644
+--- a/internal/registry/model_definitions_test.go
++++ b/internal/registry/model_definitions_test.go
+@@ -2,12 +2,11 @@ package registry
+ 
+ import "testing"
+ 
+-func TestCodexFreeModelsExcludeGPT55(t *testing.T) {
+-	model := findModelInfo(GetCodexFreeModels(), "gpt-5.5")
+-	if model != nil {
+-		t.Fatal("expected codex free tier to NOT include gpt-5.5")
+-	}
+-}
++// NOTE: Earlier upstream policy excluded gpt-5.5 from the codex-free tier and
++// a TestCodexFreeModelsExcludeGPT55 enforced that. The canonical models.json
++// (both embedded copy and remote source at router-for-me/models) now includes
++// gpt-5.5 in codex-free, so the previous "exclude" assertion is obsolete and
++// has been removed.
+ 
+ func TestCodexStaticModelsIncludeGPT55(t *testing.T) {
+ 	tierModels := map[string][]*ModelInfo{

@@ -1,0 +1,45 @@
+diff --git a/internal/registry/model_definitions.go b/internal/registry/model_definitions.go
+index 7ac6b469..2eb887a5 100644
+--- a/internal/registry/model_definitions.go
++++ b/internal/registry/model_definitions.go
+@@ -8,6 +8,14 @@ import (
+ 
+ const codexBuiltinImageModelID = "gpt-image-2"
+ 
++// gpt-5.5-instant intentionally NOT registered — chatgpt.com/backend-api/codex
++// returns 400 "model not supported" for it, which would trigger
++// model_not_supported suspension across the entire codex auth pool on every
++// request. To re-enable when OpenAI ships codex-backend support, uncomment the
++// const below and the call site inside WithCodexBuiltins, and re-add the four
++// "gpt-5.5-instant" entries in models.json.
++// const codexBuiltinInstantModelID = "gpt-5.5-instant"
++
+ // staticModelsJSON mirrors the top-level structure of models.json.
+ type staticModelsJSON struct {
+ 	Claude      []*ModelInfo `json:"claude"`
+@@ -97,6 +105,25 @@ func codexBuiltinImageModelInfo() *ModelInfo {
+ 	}
+ }
+ 
++// codexBuiltinInstantModelInfo is currently disabled — see comment above
++// codexBuiltinInstantModelID. Restore the call in WithCodexBuiltins and
++// uncomment this function once OpenAI's codex backend accepts gpt-5.5-instant.
++// func codexBuiltinInstantModelInfo() *ModelInfo {
++// 	return &ModelInfo{
++// 		ID:                  codexBuiltinInstantModelID,
++// 		Object:              "model",
++// 		Created:             1777276800, // 2026-05-05 (GPT-5.5 Instant rollout)
++// 		OwnedBy:             "openai",
++// 		Type:                "openai",
++// 		DisplayName:         "GPT 5.5 Instant",
++// 		Version:             codexBuiltinInstantModelID,
++// 		Description:         "Instant non-reasoning variant of GPT-5.5 - the new default ChatGPT model, available to all accounts including Free.",
++// 		ContextLength:       272000,
++// 		MaxCompletionTokens: 128000,
++// 		SupportedParameters: []string{"tools"},
++// 	}
++// }
++
+ func upsertModelInfos(models []*ModelInfo, extras ...*ModelInfo) []*ModelInfo {
+ 	if len(extras) == 0 {
+ 		return models

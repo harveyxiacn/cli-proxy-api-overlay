@@ -1,0 +1,547 @@
+diff --git a/internal/api/handlers/management/auth_files.go b/internal/api/handlers/management/auth_files.go
+index 285b3ae2..27aa9f85 100644
+--- a/internal/api/handlers/management/auth_files.go
++++ b/internal/api/handlers/management/auth_files.go
+@@ -141,9 +141,24 @@ func startCallbackForwarder(port int, provider, targetBase string) (*callbackFor
+ 	}
+ 
+ 	addr := fmt.Sprintf("0.0.0.0:%d", port)
+-	ln, err := net.Listen("tcp", addr)
+-	if err != nil {
+-		return nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
++	// Retry binding with backoff to handle OS port release delays (e.g. Windows TCP TIME_WAIT)
++	var ln net.Listener
++	var listenErr error
++	for attempt := 0; attempt < 6; attempt++ {
++		ln, listenErr = net.Listen("tcp", addr)
++		if listenErr == nil {
++			break
++		}
++		errStr := listenErr.Error()
++		if !strings.Contains(errStr, "address already in use") &&
++			!strings.Contains(errStr, "bind:") &&
++			!strings.Contains(errStr, "Only one usage") {
++			return nil, fmt.Errorf("failed to listen on %s: %w", addr, listenErr)
++		}
++		time.Sleep(time.Duration(200*(attempt+1)) * time.Millisecond)
++	}
++	if listenErr != nil {
++		return nil, fmt.Errorf("failed to listen on %s after retries: %w", addr, listenErr)
+ 	}
+ 
+ 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+@@ -412,6 +427,12 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
+ 	if !auth.LastRefreshedAt.IsZero() {
+ 		entry["last_refresh"] = auth.LastRefreshedAt
+ 	}
++	if auth.LastError != nil && strings.TrimSpace(auth.LastError.Message) != "" {
++		entry["last_error"] = gin.H{
++			"code":    auth.LastError.Code,
++			"message": auth.LastError.Message,
++		}
++	}
+ 	if !auth.NextRetryAfter.IsZero() {
+ 		entry["next_retry_after"] = auth.NextRetryAfter
+ 	}
+@@ -465,6 +486,20 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
+ 			}
+ 		}
+ 	}
++	if group := strings.TrimSpace(authAttribute(auth, "group")); group != "" {
++		entry["group"] = group
++	} else if auth.Metadata != nil {
++		if rawGroup, ok := auth.Metadata["group"].(string); ok {
++			if trimmed := strings.TrimSpace(rawGroup); trimmed != "" {
++				entry["group"] = trimmed
++			}
++		}
++	}
++	if auth.Metadata != nil {
++		if tags, ok := metadataStringSlice(auth.Metadata["tags"]); ok && len(tags) > 0 {
++			entry["tags"] = tags
++		}
++	}
+ 	return entry
+ }
+ 
+@@ -535,6 +570,52 @@ func authAttribute(auth *coreauth.Auth, key string) string {
+ 	return auth.Attributes[key]
+ }
+ 
++func metadataStringSlice(value any) ([]string, bool) {
++	switch v := value.(type) {
++	case []string:
++		out := make([]string, 0, len(v))
++		for _, item := range v {
++			if trimmed := strings.TrimSpace(item); trimmed != "" {
++				out = append(out, trimmed)
++			}
++		}
++		return out, true
++	case []any:
++		out := make([]string, 0, len(v))
++		for _, item := range v {
++			if s, ok := item.(string); ok {
++				if trimmed := strings.TrimSpace(s); trimmed != "" {
++					out = append(out, trimmed)
++				}
++			}
++		}
++		return out, true
++	default:
++		return nil, false
++	}
++}
++
++func normalizeTags(tags []string) []string {
++	seen := make(map[string]struct{}, len(tags))
++	out := make([]string, 0, len(tags))
++	for _, tag := range tags {
++		trimmed := strings.TrimSpace(tag)
++		if trimmed == "" {
++			continue
++		}
++		key := strings.ToLower(trimmed)
++		if _, ok := seen[key]; ok {
++			continue
++		}
++		seen[key] = struct{}{}
++		out = append(out, trimmed)
++		if len(out) >= 16 {
++			break
++		}
++	}
++	return out
++}
++
+ func isRuntimeOnlyAuth(auth *coreauth.Auth) bool {
+ 	if auth == nil || len(auth.Attributes) == 0 {
+ 		return false
+@@ -1055,6 +1136,52 @@ func (h *Handler) upsertAuthRecord(ctx context.Context, auth *coreauth.Auth) err
+ 	return err
+ }
+ 
++func (h *Handler) updateAuthFileDisabled(ctx context.Context, name string, disabled bool) (string, error) {
++	name = strings.TrimSpace(name)
++	if name == "" {
++		return "", fmt.Errorf("name is required")
++	}
++	if h == nil || h.authManager == nil {
++		return "", fmt.Errorf("core auth manager unavailable")
++	}
++
++	var targetAuth *coreauth.Auth
++	if auth, ok := h.authManager.GetByID(name); ok {
++		targetAuth = auth
++	} else {
++		auths := h.authManager.List()
++		for _, auth := range auths {
++			if auth.FileName == name {
++				targetAuth = auth
++				break
++			}
++		}
++	}
++
++	if targetAuth == nil {
++		return "", errAuthFileNotFound
++	}
++
++	targetAuth.Disabled = disabled
++	if disabled {
++		targetAuth.Status = coreauth.StatusDisabled
++		targetAuth.StatusMessage = "disabled via management API"
++	} else {
++		targetAuth.Status = coreauth.StatusActive
++		targetAuth.StatusMessage = ""
++	}
++	targetAuth.UpdatedAt = time.Now()
++
++	if _, err := h.authManager.Update(ctx, targetAuth); err != nil {
++		return "", fmt.Errorf("failed to update auth: %w", err)
++	}
++	PublishManagementEvent("auth.status_changed", h.buildAuthFileEntry(targetAuth))
++	if targetAuth.FileName != "" {
++		return targetAuth.FileName, nil
++	}
++	return targetAuth.ID, nil
++}
++
+ // PatchAuthFileStatus toggles the disabled state of an auth file
+ func (h *Handler) PatchAuthFileStatus(c *gin.Context) {
+ 	if h.authManager == nil {
+@@ -1082,46 +1209,65 @@ func (h *Handler) PatchAuthFileStatus(c *gin.Context) {
+ 	}
+ 
+ 	ctx := c.Request.Context()
+-
+-	// Find auth by name or ID
+-	var targetAuth *coreauth.Auth
+-	if auth, ok := h.authManager.GetByID(name); ok {
+-		targetAuth = auth
+-	} else {
+-		auths := h.authManager.List()
+-		for _, auth := range auths {
+-			if auth.FileName == name {
+-				targetAuth = auth
+-				break
+-			}
+-		}
+-	}
+-
+-	if targetAuth == nil {
++	if _, err := h.updateAuthFileDisabled(ctx, name, *req.Disabled); errors.Is(err, errAuthFileNotFound) {
+ 		c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
+ 		return
++	} else if err != nil {
++		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to update auth: %v", err)})
++		return
+ 	}
+ 
+-	// Update disabled state
+-	targetAuth.Disabled = *req.Disabled
+-	if *req.Disabled {
+-		targetAuth.Status = coreauth.StatusDisabled
+-		targetAuth.StatusMessage = "disabled via management API"
+-	} else {
+-		targetAuth.Status = coreauth.StatusActive
+-		targetAuth.StatusMessage = ""
++	c.JSON(http.StatusOK, gin.H{"status": "ok", "disabled": *req.Disabled})
++}
++
++// PostStatusAuthFilesBatch toggles the disabled state of multiple auth files.
++func (h *Handler) PostStatusAuthFilesBatch(c *gin.Context) {
++	if h.authManager == nil {
++		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
++		return
+ 	}
+-	targetAuth.UpdatedAt = time.Now()
+ 
+-	if _, err := h.authManager.Update(ctx, targetAuth); err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to update auth: %v", err)})
++	var req struct {
++		Names    []string `json:"names"`
++		Disabled *bool    `json:"disabled"`
++	}
++	if err := c.ShouldBindJSON(&req); err != nil {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
++		return
++	}
++	names := uniqueAuthFileNames(req.Names)
++	if len(names) == 0 {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "names is required"})
++		return
++	}
++	if req.Disabled == nil {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "disabled is required"})
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, gin.H{"status": "ok", "disabled": *req.Disabled})
++	ctx := c.Request.Context()
++	updatedFiles := make([]string, 0, len(names))
++	failed := make([]gin.H, 0)
++	for _, name := range names {
++		updatedName, errUpdate := h.updateAuthFileDisabled(ctx, name, *req.Disabled)
++		if errUpdate != nil {
++			failed = append(failed, gin.H{"name": name, "error": errUpdate.Error()})
++			continue
++		}
++		updatedFiles = append(updatedFiles, updatedName)
++	}
++
++	c.JSON(http.StatusOK, gin.H{
++		"status":   "ok",
++		"disabled": *req.Disabled,
++		"updated":  len(updatedFiles),
++		"files":    updatedFiles,
++		"failed":   len(failed),
++		"errors":   failed,
++	})
+ }
+ 
+-// PatchAuthFileFields updates editable fields (prefix, proxy_url, headers, priority, note) of an auth file.
++// PatchAuthFileFields updates editable fields (prefix, proxy_url, headers, priority, note, label) of an auth file.
+ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
+ 	if h.authManager == nil {
+ 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
+@@ -1135,6 +1281,9 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
+ 		Headers  map[string]string `json:"headers"`
+ 		Priority *int              `json:"priority"`
+ 		Note     *string           `json:"note"`
++		Label    *string           `json:"label"` // human-readable display label
++		Group    *string           `json:"group"`
++		Tags     *[]string         `json:"tags"`
+ 	}
+ 	if err := c.ShouldBindJSON(&req); err != nil {
+ 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+@@ -1271,6 +1420,19 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
+ 			changed = true
+ 		}
+ 	}
++	if req.Label != nil {
++		label := strings.TrimSpace(*req.Label)
++		targetAuth.Label = label
++		if targetAuth.Metadata == nil {
++			targetAuth.Metadata = make(map[string]any)
++		}
++		if label == "" {
++			delete(targetAuth.Metadata, "label")
++		} else {
++			targetAuth.Metadata["label"] = label
++		}
++		changed = true
++	}
+ 	if req.Priority != nil || req.Note != nil {
+ 		if targetAuth.Metadata == nil {
+ 			targetAuth.Metadata = make(map[string]any)
+@@ -1300,6 +1462,35 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
+ 		}
+ 		changed = true
+ 	}
++	if req.Group != nil {
++		group := strings.TrimSpace(*req.Group)
++		if targetAuth.Metadata == nil {
++			targetAuth.Metadata = make(map[string]any)
++		}
++		if targetAuth.Attributes == nil {
++			targetAuth.Attributes = make(map[string]string)
++		}
++		if group == "" {
++			delete(targetAuth.Metadata, "group")
++			delete(targetAuth.Attributes, "group")
++		} else {
++			targetAuth.Metadata["group"] = group
++			targetAuth.Attributes["group"] = group
++		}
++		changed = true
++	}
++	if req.Tags != nil {
++		tags := normalizeTags(*req.Tags)
++		if targetAuth.Metadata == nil {
++			targetAuth.Metadata = make(map[string]any)
++		}
++		if len(tags) == 0 {
++			delete(targetAuth.Metadata, "tags")
++		} else {
++			targetAuth.Metadata["tags"] = tags
++		}
++		changed = true
++	}
+ 
+ 	if !changed {
+ 		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
+@@ -1313,9 +1504,144 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
+ 		return
+ 	}
+ 
++	PublishManagementEvent("auth.status_changed", h.buildAuthFileEntry(targetAuth))
+ 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+ }
+ 
++type authFileFieldBatchSet struct {
++	Label    *string `json:"label"`
++	Note     *string `json:"note"`
++	Group    *string `json:"group"`
++	Priority *int    `json:"priority"`
++}
++
++func (h *Handler) findAuthByName(name string) *coreauth.Auth {
++	name = strings.TrimSpace(name)
++	if h == nil || h.authManager == nil || name == "" {
++		return nil
++	}
++	if auth, ok := h.authManager.GetByID(name); ok {
++		return auth
++	}
++	for _, auth := range h.authManager.List() {
++		if auth != nil && auth.FileName == name {
++			return auth
++		}
++	}
++	return nil
++}
++
++// PostAuthFilesFieldsBatch updates organization fields for multiple auth files.
++func (h *Handler) PostAuthFilesFieldsBatch(c *gin.Context) {
++	if h.authManager == nil {
++		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
++		return
++	}
++	var req struct {
++		Names      []string              `json:"names"`
++		Set        authFileFieldBatchSet `json:"set"`
++		AddTags    []string              `json:"add_tags"`
++		RemoveTags []string              `json:"remove_tags"`
++	}
++	if err := c.ShouldBindJSON(&req); err != nil {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
++		return
++	}
++	names := uniqueAuthFileNames(req.Names)
++	if len(names) == 0 {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "names is required"})
++		return
++	}
++	addTags := normalizeTags(req.AddTags)
++	removeTags := normalizeTags(req.RemoveTags)
++	removeSet := make(map[string]struct{}, len(removeTags))
++	for _, tag := range removeTags {
++		removeSet[strings.ToLower(tag)] = struct{}{}
++	}
++
++	updatedFiles := make([]string, 0, len(names))
++	failed := make([]gin.H, 0)
++	for _, name := range names {
++		auth := h.findAuthByName(name)
++		if auth == nil {
++			failed = append(failed, gin.H{"name": name, "error": errAuthFileNotFound.Error()})
++			continue
++		}
++		if auth.Metadata == nil {
++			auth.Metadata = make(map[string]any)
++		}
++		if auth.Attributes == nil {
++			auth.Attributes = make(map[string]string)
++		}
++		if req.Set.Label != nil {
++			label := strings.TrimSpace(*req.Set.Label)
++			auth.Label = label
++			if label == "" {
++				delete(auth.Metadata, "label")
++			} else {
++				auth.Metadata["label"] = label
++			}
++		}
++		if req.Set.Note != nil {
++			note := strings.TrimSpace(*req.Set.Note)
++			if note == "" {
++				delete(auth.Metadata, "note")
++				delete(auth.Attributes, "note")
++			} else {
++				auth.Metadata["note"] = note
++				auth.Attributes["note"] = note
++			}
++		}
++		if req.Set.Group != nil {
++			group := strings.TrimSpace(*req.Set.Group)
++			if group == "" {
++				delete(auth.Metadata, "group")
++				delete(auth.Attributes, "group")
++			} else {
++				auth.Metadata["group"] = group
++				auth.Attributes["group"] = group
++			}
++		}
++		if req.Set.Priority != nil {
++			if *req.Set.Priority == 0 {
++				delete(auth.Metadata, "priority")
++				delete(auth.Attributes, "priority")
++			} else {
++				auth.Metadata["priority"] = *req.Set.Priority
++				auth.Attributes["priority"] = strconv.Itoa(*req.Set.Priority)
++			}
++		}
++		existingTags, _ := metadataStringSlice(auth.Metadata["tags"])
++		nextTags := make([]string, 0, len(existingTags)+len(addTags))
++		for _, tag := range existingTags {
++			if _, remove := removeSet[strings.ToLower(tag)]; !remove {
++				nextTags = append(nextTags, tag)
++			}
++		}
++		nextTags = append(nextTags, addTags...)
++		nextTags = normalizeTags(nextTags)
++		if len(nextTags) == 0 {
++			delete(auth.Metadata, "tags")
++		} else {
++			auth.Metadata["tags"] = nextTags
++		}
++		auth.UpdatedAt = time.Now()
++		if _, errUpdate := h.authManager.Update(c.Request.Context(), auth); errUpdate != nil {
++			failed = append(failed, gin.H{"name": name, "error": errUpdate.Error()})
++			continue
++		}
++		updatedFiles = append(updatedFiles, authDisplayName(auth))
++		PublishManagementEvent("auth.status_changed", h.buildAuthFileEntry(auth))
++	}
++	c.JSON(http.StatusOK, gin.H{
++		"status":  "ok",
++		"updated": len(updatedFiles),
++		"files":   updatedFiles,
++		"failed":  len(failed),
++		"errors":  failed,
++	})
++}
++
+ func (h *Handler) disableAuth(ctx context.Context, id string) {
+ 	if h == nil || h.authManager == nil {
+ 		return
+@@ -1799,6 +2125,23 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
+ 
+ 	fmt.Println("Initializing Codex authentication...")
+ 
++	// Cancel any existing pending codex OAuth sessions to avoid interference with the new flow.
++	// This prevents the old goroutine from calling CompleteOAuthSessionsByProvider("codex") after
++	// the new session is registered, which would incorrectly remove the new session.
++	CompleteOAuthSessionsByProvider("codex")
++
++	// Proactively stop any existing codex callback forwarder so port 1455 is free before
++	// startCallbackForwarder tries to bind it. This reduces the chance of a TCP TIME_WAIT
++	// conflict when a previous session's forwarder was recently active.
++	callbackForwardersMu.Lock()
++	existingFwd := callbackForwarders[codexCallbackPort]
++	callbackForwardersMu.Unlock()
++	if existingFwd != nil {
++		stopCallbackForwarderInstance(codexCallbackPort, existingFwd)
++		// Brief pause to allow the OS to release the port before the next bind attempt.
++		time.Sleep(150 * time.Millisecond)
++	}
++
+ 	// Generate PKCE codes
+ 	pkceCodes, err := codex.GeneratePKCECodes()
+ 	if err != nil {
+@@ -2581,6 +2924,44 @@ func (h *Handler) GetAuthStatus(c *gin.Context) {
+ 	c.JSON(http.StatusOK, gin.H{"status": "wait"})
+ }
+ 
++// PostDeleteAuthFilesBatch deletes multiple auth files in one request.
++// POST /v0/management/auth-files/delete-batch
++// Body: {"names": ["file1.json", "file2.json"]}
++func (h *Handler) PostDeleteAuthFilesBatch(c *gin.Context) {
++	if h.authManager == nil {
++		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
++		return
++	}
++
++	var req struct {
++		Names []string `json:"names"`
++	}
++	if err := c.ShouldBindJSON(&req); err != nil || len(req.Names) == 0 {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "names is required"})
++		return
++	}
++
++	ctx := c.Request.Context()
++	deletedFiles := make([]string, 0, len(req.Names))
++	failed := make([]gin.H, 0)
++
++	for _, name := range uniqueAuthFileNames(req.Names) {
++		deletedName, _, errDelete := h.deleteAuthFileByName(ctx, name)
++		if errDelete != nil {
++			failed = append(failed, gin.H{"name": name, "error": errDelete.Error()})
++			continue
++		}
++		deletedFiles = append(deletedFiles, deletedName)
++	}
++
++	c.JSON(http.StatusOK, gin.H{
++		"deleted": len(deletedFiles),
++		"files":   deletedFiles,
++		"failed":  len(failed),
++		"errors":  failed,
++	})
++}
++
+ // PopulateAuthContext extracts request info and adds it to the context
+ func PopulateAuthContext(ctx context.Context, c *gin.Context) context.Context {
+ 	info := &coreauth.RequestInfo{

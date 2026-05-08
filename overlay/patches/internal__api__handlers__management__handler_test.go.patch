@@ -1,0 +1,51 @@
+diff --git a/internal/api/handlers/management/handler_test.go b/internal/api/handlers/management/handler_test.go
+index f3a6086e..b489b4ab 100644
+--- a/internal/api/handlers/management/handler_test.go
++++ b/internal/api/handlers/management/handler_test.go
+@@ -8,7 +8,7 @@ import (
+ 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+ )
+ 
+-func TestAuthenticateManagementKey_LocalhostIPBan_BlocksCorrectKeyDuringBan(t *testing.T) {
++func TestAuthenticateManagementKey_LocalhostFailures_DoNotBanCorrectKey(t *testing.T) {
+ 	h := &Handler{
+ 		cfg:            &config.Config{},
+ 		failedAttempts: make(map[string]*attemptInfo),
+@@ -26,8 +26,36 @@ func TestAuthenticateManagementKey_LocalhostIPBan_BlocksCorrectKeyDuringBan(t *t
+ 	}
+ 
+ 	allowed, statusCode, errMsg := h.AuthenticateManagementKey("127.0.0.1", true, "test-secret")
++	if !allowed {
++		t.Fatalf("expected correct key to be accepted after localhost failures, status=%d msg=%q", statusCode, errMsg)
++	}
++	if statusCode != 0 || errMsg != "" {
++		t.Fatalf("expected empty success status/message, got status=%d msg=%q", statusCode, errMsg)
++	}
++}
++
++func TestAuthenticateManagementKey_RemoteIPBan_BlocksCorrectKeyDuringBan(t *testing.T) {
++	h := &Handler{
++		cfg: &config.Config{
++			RemoteManagement: config.RemoteManagement{AllowRemote: true},
++		},
++		failedAttempts: make(map[string]*attemptInfo),
++		envSecret:      "test-secret",
++	}
++
++	for i := 0; i < 5; i++ {
++		allowed, statusCode, errMsg := h.AuthenticateManagementKey("203.0.113.10", false, "wrong-secret")
++		if allowed {
++			t.Fatalf("expected auth to be denied at attempt %d", i+1)
++		}
++		if statusCode != http.StatusUnauthorized || !strings.HasPrefix(errMsg, "invalid management key") {
++			t.Fatalf("unexpected auth failure at attempt %d: status=%d msg=%q", i+1, statusCode, errMsg)
++		}
++	}
++
++	allowed, statusCode, errMsg := h.AuthenticateManagementKey("203.0.113.10", false, "test-secret")
+ 	if allowed {
+-		t.Fatalf("expected correct key to be denied while banned")
++		t.Fatalf("expected correct key to be denied while remote IP is banned")
+ 	}
+ 	if statusCode != http.StatusForbidden {
+ 		t.Fatalf("expected forbidden status while banned, got %d", statusCode)
