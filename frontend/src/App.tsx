@@ -35,6 +35,7 @@ const ApiKeyLimits = lazy(() => import("@/pages/ApiKeyLimits").then(m => ({ defa
 const Webhooks = lazy(() => import("@/pages/Webhooks").then(m => ({ default: m.Webhooks })))
 const Jobs = lazy(() => import("@/pages/Jobs").then(m => ({ default: m.Jobs })))
 const Desktop = lazy(() => import("@/pages/Desktop").then(m => ({ default: m.Desktop })))
+const RealtimeMonitor = lazy(() => import("@/pages/RealtimeMonitor").then(m => ({ default: m.RealtimeMonitor })))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -84,6 +85,7 @@ export default function App() {
                 <Route path="/api-key-limits" element={<ApiKeyLimits />} />
                 <Route path="/webhooks"   element={<Webhooks />} />
                 <Route path="/jobs"       element={<Jobs />} />
+                <Route path="/realtime"   element={<RealtimeMonitor />} />
                 <Route path="/desktop"    element={<Desktop />} />
               </Routes>
             </Suspense>

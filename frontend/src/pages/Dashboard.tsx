@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/Badge"
 import { Modal, useProgressModal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/Spinner"
 import { useToast } from "@/components/ui/Toast"
-import { fmtTokens, fmtUSD, needsRelogin } from "@/lib/utils"
+import { fmtTokens, fmtUSD, needsRelogin, cn } from "@/lib/utils"
 import type { AuthFile } from "@/api/types"
 import type { ConnectConfig, ManagementJob } from "@/api/types"
 
@@ -72,6 +72,14 @@ export function Dashboard() {
   const errored  = files.filter(f => !["active", "ready"].includes(f.status) && !f.disabled && !!f.status).length
   const relogin  = files.filter(f => needsRelogin(f.status_message ?? "")).length
   const codex    = files.filter(f => f.provider?.toLowerCase() === "codex").length
+
+  // AT expiry distribution from expiry_time field (read from "expired" metadata key)
+  const now = Date.now()
+  const codexWithExpiry = files.filter(f => f.provider?.toLowerCase() === "codex" && f.expiry_time)
+  const atExpired = codexWithExpiry.filter(f => new Date(f.expiry_time!).getTime() < now).length
+  const atLt24h   = codexWithExpiry.filter(f => { const t = new Date(f.expiry_time!).getTime(); return t >= now && t < now + 86400_000 }).length
+  const atLt7d    = codexWithExpiry.filter(f => { const t = new Date(f.expiry_time!).getTime(); return t >= now + 86400_000 && t < now + 7 * 86400_000 }).length
+  const atGt7d    = codexWithExpiry.filter(f => new Date(f.expiry_time!).getTime() >= now + 7 * 86400_000).length
 
   const refreshMut = useMutation({
     mutationFn: async () => {
@@ -146,6 +154,45 @@ export function Dashboard() {
         <StatCard label="累计成功请求"         value={stats?.total_success ?? 0} color="text-green-400" />
         <StatCard label="累计失败请求"         value={stats?.total_failed  ?? 0} color="text-red-400" />
       </StatsGrid>
+
+      {/* AT expiry distribution — only shown when expiry data is available */}
+      {codexWithExpiry.length > 0 && (
+        <Card>
+          <CardTitle>
+            <span>⏱ Codex AT 到期分布</span>
+            <span className="text-[0.72rem] text-[#64748b]">{codexWithExpiry.length} 个账号有到期信息</span>
+          </CardTitle>
+          <div className="grid grid-cols-4 gap-2">
+            <div className={cn("rounded-lg border p-3 text-center", atExpired > 0 ? "border-red-500/40 bg-red-500/8" : "border-[#2d3148] bg-[#0f1117]")}>
+              <div className={cn("text-2xl font-bold", atExpired > 0 ? "text-red-400" : "text-[#64748b]")}>{atExpired}</div>
+              <div className="text-[0.72rem] text-[#64748b] mt-0.5">已过期</div>
+              {atExpired > 0 && <div className="text-[0.68rem] text-red-400 mt-1">⚠ 需立即刷新</div>}
+            </div>
+            <div className={cn("rounded-lg border p-3 text-center", atLt24h > 0 ? "border-orange-500/40 bg-orange-500/8" : "border-[#2d3148] bg-[#0f1117]")}>
+              <div className={cn("text-2xl font-bold", atLt24h > 0 ? "text-orange-400" : "text-[#64748b]")}>{atLt24h}</div>
+              <div className="text-[0.72rem] text-[#64748b] mt-0.5">&lt;24h 到期</div>
+            </div>
+            <div className="rounded-lg border border-[#2d3148] bg-[#0f1117] p-3 text-center">
+              <div className="text-2xl font-bold text-yellow-400">{atLt7d}</div>
+              <div className="text-[0.72rem] text-[#64748b] mt-0.5">1-7天到期</div>
+            </div>
+            <div className="rounded-lg border border-[#2d3148] bg-[#0f1117] p-3 text-center">
+              <div className="text-2xl font-bold text-green-400">{atGt7d}</div>
+              <div className="text-[0.72rem] text-[#64748b] mt-0.5">&gt;7天</div>
+            </div>
+          </div>
+          {(atExpired > 0 || atLt24h > 0) && (
+            <div className="mt-3 flex gap-2">
+              <a
+                href="/cpa-management/accounts?filter=at_expiring"
+                className="text-[0.78rem] text-[#6c63ff] hover:underline"
+              >
+                → 前往授权文件页查看即将到期账号
+              </a>
+            </div>
+          )}
+        </Card>
+      )}
 
       <Card>
         <CardTitle>

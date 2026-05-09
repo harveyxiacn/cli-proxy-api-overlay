@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useConnection } from "@/stores/connection"
 import {
@@ -89,12 +90,14 @@ function sortValue(f: AuthFile, col: SortCol): string | number {
 }
 
 const STATUS_OPTIONS = [
-  { value: "",         label: "全部状态" },
-  { value: "problem",  label: "有问题 (error/unavailable/disabled)" },
-  { value: "relogin",  label: "需要重新登录" },
-  { value: "active",   label: "active" },
-  { value: "ready",    label: "ready" },
-  { value: "disabled", label: "disabled" },
+  { value: "",           label: "全部状态" },
+  { value: "problem",    label: "有问题 (error/unavailable/disabled)" },
+  { value: "relogin",    label: "需要重新登录" },
+  { value: "active",     label: "active" },
+  { value: "ready",      label: "ready" },
+  { value: "disabled",   label: "disabled" },
+  { value: "at_expired", label: "AT 已过期" },
+  { value: "at_lt7d",    label: "AT 7天内到期" },
 ]
 
 // Inline refresh job state — drives the progress bar and per-row indicators.
@@ -123,6 +126,7 @@ export function Accounts() {
   const [reloginBatchOpen, setReloginBatchOpen] = useState(false)
   const [refreshJob, setRefreshJob] = useState<RefreshJobState | null>(null)
   const refreshPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const tableContainerRef = useRef<HTMLDivElement>(null)
 
   // While a refresh job is running, poll the job + auth list at 1.5s intervals.
   const isRefreshing = refreshJob?.snapshot.status === "running"
@@ -204,6 +208,7 @@ export function Accounts() {
     qc.invalidateQueries({ queryKey: qkeys.authFiles(config) })
     qc.invalidateQueries({ queryKey: qkeys.maintenance(config) })
   }
+
   const bucketsByID = new Map<string, RecentRequestBucket[]>()
   for (const a of statsQ.data?.auths ?? []) {
     if (a.recent_requests) bucketsByID.set(a.id, a.recent_requests)
@@ -225,10 +230,12 @@ export function Accounts() {
     .filter(f => {
       if (!filter.status) return true
       if (filter.status === "problem")  return f.disabled || f.unavailable || (!!f.status && !["active", "ready"].includes(f.status))
-      if (filter.status === "relogin")  return f.status !== "active" && f.status !== "ready" && needsRelogin(f.status_message ?? "")
-      if (filter.status === "disabled") return f.disabled
-      if (filter.status === "active")   return f.status === "active" && !f.disabled
-      if (filter.status === "ready")    return f.status === "ready" && !f.disabled
+      if (filter.status === "relogin")    return f.status !== "active" && f.status !== "ready" && needsRelogin(f.status_message ?? "")
+      if (filter.status === "disabled")   return f.disabled
+      if (filter.status === "active")     return f.status === "active" && !f.disabled
+      if (filter.status === "ready")      return f.status === "ready" && !f.disabled
+      if (filter.status === "at_expired") return !!f.expiry_time && new Date(f.expiry_time).getTime() < Date.now()
+      if (filter.status === "at_lt7d")    return !!f.expiry_time && new Date(f.expiry_time).getTime() < Date.now() + 7 * 86400_000
       return true
     })
     .sort((a, b) => {
@@ -238,6 +245,13 @@ export function Accounts() {
         : String(va).localeCompare(String(vb))
       return sortDir === "asc" ? cmp : -cmp
     })
+
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: useCallback(() => 44, []),
+    overscan: 8,
+  })
 
   const handleSort = (col: SortCol) => {
     if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc")
@@ -601,8 +615,13 @@ export function Accounts() {
           </Alert>
         )}
 
-        {/* Table */}
+        {/* Table — virtualized for performance with large account pools */}
         <div className="overflow-x-auto">
+        <div
+          ref={tableContainerRef}
+          className="overflow-y-auto"
+          style={{ maxHeight: "calc(100vh - 380px)", minHeight: 200 }}
+        >
           <table className="w-full text-[0.82rem] border-collapse">
             <thead>
               <tr className="bg-[#22263a]">
@@ -679,7 +698,12 @@ export function Accounts() {
                   </td>
                 </tr>
               )}
-              {filtered.map(f => {
+              {/* Virtual spacer: top padding */}
+              {rowVirtualizer.getVirtualItems().length > 0 && (
+                <tr><td style={{ height: rowVirtualizer.getVirtualItems()[0].start }} colSpan={13} /></tr>
+              )}
+              {rowVirtualizer.getVirtualItems().map(virtualRow => {
+                const f = filtered[virtualRow.index]
                 const isWorking = f.status === "active" || f.status === "ready"
                 // Only flag as relogin when account is NOT working (non-active status with relogin keyword).
                 // Active accounts are serving requests fine; their background refresh errors should not
@@ -851,8 +875,15 @@ export function Accounts() {
                   </tr>
                 )
               })}
+              {/* Virtual spacer: bottom padding */}
+              {rowVirtualizer.getVirtualItems().length > 0 && (() => {
+                const lastItem = rowVirtualizer.getVirtualItems().at(-1)!
+                const bottomPad = rowVirtualizer.getTotalSize() - lastItem.end
+                return bottomPad > 0 ? <tr><td style={{ height: bottomPad }} colSpan={13} /></tr> : null
+              })()}
             </tbody>
           </table>
+        </div>
         </div>
       </Card>
 
