@@ -15,6 +15,8 @@ export interface AuthFile {
   created_at?: string; updated_at?: string; modtime?: string
   path?: string
   auth_index?: number
+  /** AT expiry time from JWT id_token/access_token exp claim (ISO string). */
+  expiry_time?: string
 }
 export interface AuthFilesResponse { files: AuthFile[] }
 
@@ -494,6 +496,8 @@ export interface ManagementJob {
   pre_skipped_count?: number // accounts skipped upfront (valid token, smart mode)
   force?: boolean            // whether force-refresh was requested
 }
+
+
 
 export interface ManagementEventToken { token: string; expires_at: number }
 export interface ManagementEventEnvelope<T = unknown> {

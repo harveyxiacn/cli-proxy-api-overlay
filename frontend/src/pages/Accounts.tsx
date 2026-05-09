@@ -661,9 +661,9 @@ export function Accounts() {
                 </th>
                 <th
                   className="text-left px-2 py-2 text-[#64748b] font-medium whitespace-nowrap"
-                  title="刷新失败后服务器计划的下次重试时间"
+                  title="AT 到期时间（绿=7天以上，黄=3天内，橙=24小时内，红=已过期）。如无 JWT 则显示刷新失败后的重试时间"
                 >
-                  下次重试
+                  AT 到期
                 </th>
                 <th className="text-left px-2 py-2 text-[#64748b] font-medium">操作</th>
               </tr>
@@ -803,7 +803,13 @@ export function Accounts() {
                       <Sparkline buckets={bucketsByID.get(f.id)} max={12} />
                     </td>
                     <td className="px-2 py-2 text-[#64748b] text-xs whitespace-nowrap">
-                      {f.next_retry_after ? fmtDate(new Date(f.next_retry_after).getTime() / 1000) : "-"}
+                      {f.expiry_time ? (() => {
+                        const rem = new Date(f.expiry_time!).getTime() - Date.now()
+                        const h = Math.round(rem / 3600000)
+                        const cls = h < 0 ? "text-red-400" : h < 24 ? "text-orange-400" : h < 72 ? "text-yellow-400" : "text-green-400"
+                        const label = h < 0 ? "已过期" : h < 24 ? `${h}h` : `${Math.round(h/24)}d`
+                        return <span className={cls} title={new Date(f.expiry_time!).toLocaleString("zh-CN")}>{label}</span>
+                      })() : f.next_retry_after ? fmtDate(new Date(f.next_retry_after).getTime() / 1000) : "-"}
                     </td>
                     <td className="px-2 py-2">
                       <div className="flex gap-1">
@@ -900,6 +906,7 @@ export function Accounts() {
       >
         {drawerFile && (() => {
           const f = drawerFile
+          const fWorking = f.status === "active" || f.status === "ready"
           const buckets = bucketsByID.get(f.id) ?? []
           const stat = statsQ.data?.auths.find(a => a.id === f.id)
           return (
@@ -945,10 +952,12 @@ export function Accounts() {
                 </section>
               )}
 
-              {(f.last_error?.message || f.status_message) && (
+              {((!fWorking && f.last_error?.message) || f.status_message) && (
                 <section>
                   <h4 className="text-xs font-bold text-[#94a3b8] mb-2">错误信息</h4>
-                  {f.last_error?.message && (
+                  {/* last_error only shown for non-working accounts; active accounts
+                      serve requests fine so background refresh errors are not alarming. */}
+                  {!fWorking && f.last_error?.message && (
                     <div className="bg-red-500/10 border border-red-500/30 rounded p-2.5 text-xs text-red-300 break-all mb-2">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-semibold">最近一次刷新错误</span>
@@ -993,6 +1002,19 @@ export function Accounts() {
                     <DetailRow k="禁用" v={f.disabled ? "是" : "否"} />
                     <DetailRow k="不可用" v={f.unavailable ? "是" : "否"} />
                     <DetailRow k="最后刷新" v={f.last_refresh ? new Date(f.last_refresh).toLocaleString("zh-CN") : "从未成功刷新"} />
+                    {f.expiry_time && (() => {
+                      const exp = new Date(f.expiry_time)
+                      const remaining = exp.getTime() - Date.now()
+                      const hours = Math.round(remaining / 3600000)
+                      const color = hours < 24 ? "text-orange-400" : hours < 72 ? "text-yellow-400" : "text-green-400"
+                      const label = hours < 0 ? "已过期" : hours < 24 ? `${hours}小时后到期` : `${Math.round(hours/24)}天后到期`
+                      return (
+                        <DetailRow
+                          k="AT 到期时间"
+                          v={<span className={color} title={exp.toLocaleString("zh-CN")}>{label}</span>}
+                        />
+                      )
+                    })()}
                     <DetailRow k="下次重试" v={f.next_retry_after ? new Date(f.next_retry_after).toLocaleString("zh-CN") : "-"} />
                     {f.created_at && <DetailRow k="创建时间" v={new Date(f.created_at).toLocaleString("zh-CN")} />}
                     {f.updated_at && <DetailRow k="更新时间" v={new Date(f.updated_at).toLocaleString("zh-CN")} />}

@@ -229,19 +229,33 @@ func authNeedsRelogin(auth *coreauth.Auth) bool {
 	return false
 }
 
+// nonRetryableRefreshErrors are error codes that indicate the refresh_token
+// is permanently dead and no amount of retrying will help. These cause
+// authRefreshFailed() to flag an otherwise-active account.
+var nonRetryableRefreshErrors = []string{"refresh_token_reused", "invalid_grant"}
+
 // authRefreshFailed returns true when an account is still active (access_token
-// working) but its last refresh attempt failed with a non-retryable error.
-// These accounts will eventually become "needs_relogin" once the access_token
-// expires, but are not immediately broken.
+// working) but its last refresh attempt failed with a confirmed non-retryable
+// error. These accounts will need re-OAuth when the access_token expires.
+//
+// Note: only counts errors confirmed non-retryable (refresh_token_reused,
+// invalid_grant), NOT all relogin-keyword matches, to avoid false positives
+// from transient errors like 429 or network timeouts.
 func authRefreshFailed(auth *coreauth.Auth) bool {
 	if auth == nil || auth.Disabled {
 		return false
 	}
 	if auth.Status != coreauth.StatusActive && string(auth.Status) != "ready" {
-		return false // will already be counted as error/needsRelogin
+		return false // counted separately as error/needsRelogin
 	}
-	if auth.LastRefreshedAt.IsZero() && auth.LastError != nil {
-		return statusMessageNeedsRelogin(auth.LastError.Code) || statusMessageNeedsRelogin(auth.LastError.Message)
+	if auth.LastError == nil {
+		return false
+	}
+	errText := strings.ToLower(auth.LastError.Code + " " + auth.LastError.Message)
+	for _, e := range nonRetryableRefreshErrors {
+		if strings.Contains(errText, e) {
+			return true
+		}
 	}
 	return false
 }

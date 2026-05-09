@@ -17,30 +17,52 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
+
+// atRefreshLeadTime is how close to expiry an access token must be before
+// smart-mode bulk refresh will attempt to renew it. Refreshing too early wastes
+// the one-time-use ST/RT; too late risks the token expiring under load.
+const atRefreshLeadTime = 24 * time.Hour
 
 // shouldSkipBulkRefresh returns true when the account's access token is still
 // working and does not need an immediate refresh.
 //
 // Key insight: CPA sets status="active" when the access token is valid and the
-// account can serve requests. LastRefreshedAt is an in-memory field that resets
-// to zero on every CPA restart — it does NOT indicate whether the token is fresh.
-// Trying to refresh "active" accounts is both unnecessary (token is fine) and
-// harmful (consumes the refresh token, which is one-time-use for Codex/ChatGPT).
+// account can serve requests. For Codex/ChatGPT, each refresh token (ST) is
+// one-time-use — refreshing unnecessarily consumes it permanently. Smart mode
+// therefore checks the actual AT expiry from the JWT before deciding to refresh.
 //
-// Smart mode therefore only refreshes accounts that are genuinely broken:
-// status=error (access token expired), unavailable, or explicitly flagged.
+// Decision tree:
+//  1. Non-active (error/unavailable) → refresh (account is broken)
+//  2. Has LastError → refresh (something went wrong, try to recover)
+//  3. AT expiry known AND expiry > 24h away → skip (plenty of time left)
+//  4. AT expiry known AND expiry ≤ 24h → refresh (approaching expiry)
+//  5. No expiry info, status=active → skip (trust CPA; don't waste the ST)
 func shouldSkipBulkRefresh(a *Auth) bool {
 	if a == nil || a.Disabled {
 		return true
 	}
-	// Account is currently serving requests — skip to avoid wasting the
-	// one-time-use refresh token on a token that doesn't need refreshing.
-	if a.Status == StatusActive || string(a.Status) == "ready" {
-		return true
+	// Broken accounts always need a refresh attempt.
+	if a.Status != StatusActive && string(a.Status) != "ready" {
+		return false
 	}
-	// Account is broken (error, unavailable, unknown) — needs refresh.
-	return false
+	// Active accounts with an error also need a retry.
+	if a.LastError != nil {
+		return false
+	}
+	// Check actual AT expiry from the auth metadata "expired" field.
+	// For Codex, CodexTokenStorage writes "expired" with the AT expiry (~10 days).
+	// Do NOT use id_token JWT exp — that's the session token's 1-hour lifetime,
+	// not the access_token's expiry.
+	if expiry, ok := a.ExpirationTime(); ok && !expiry.IsZero() {
+		remaining := time.Until(expiry)
+		// Skip if the AT has more than 24h left; otherwise refresh proactively.
+		return remaining > atRefreshLeadTime
+	}
+	// No expiry info — trust CPA's active status to avoid consuming the
+	// one-time-use refresh token unnecessarily.
+	return true
 }
 
 // TriggerRefreshAllThrottled queues a refresh for every non-disabled,
