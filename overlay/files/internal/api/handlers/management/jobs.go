@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -31,21 +32,34 @@ type managementJob struct {
 	UpdatedAt time.Time
 	TargetIDs []string
 	Queued    int
+	// PreSkippedCount is the number of OAuth accounts whose tokens were still
+	// valid at job creation time and were skipped (force=false / smart mode).
+	// They are counted as Done+Skipped from the start of the job.
+	PreSkippedCount int
+	Force           bool
+	// goroutineDone is set to 1 (atomically) once the background refresh
+	// goroutine exits. snapshot() uses this to detect that all refreshAuth
+	// calls have completed, so any accounts still appearing "pending" (because
+	// conductor skipped them via NextRefreshAfter or refreshAuth returned early)
+	// can be reclassified as skipped and the job marked completed.
+	goroutineDone int32
 }
 
 type managementJobSnapshot struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"`
-	Status    string `json:"status"`
-	StartedAt int64  `json:"started_at"`
-	UpdatedAt int64  `json:"updated_at"`
-	Total     int    `json:"total"`
-	Queued    int    `json:"queued"`
-	Done      int    `json:"done"`
-	Success   int    `json:"success"`
-	Failed    int    `json:"failed"`
-	Skipped   int    `json:"skipped"`
-	Pending   int    `json:"pending"`
+	ID              string `json:"id"`
+	Type            string `json:"type"`
+	Status          string `json:"status"`
+	StartedAt       int64  `json:"started_at"`
+	UpdatedAt       int64  `json:"updated_at"`
+	Total           int    `json:"total"`
+	Queued          int    `json:"queued"`
+	Done            int    `json:"done"`
+	Success         int    `json:"success"`
+	Failed          int    `json:"failed"`
+	Skipped         int    `json:"skipped"`
+	Pending         int    `json:"pending"`
+	PreSkippedCount int    `json:"pre_skipped_count"` // accounts skipped due to valid token
+	Force           bool   `json:"force"`
 }
 
 type managementJobStore struct {
@@ -83,25 +97,48 @@ func (s *managementJobStore) get(id string) (*managementJob, bool) {
 	return job, ok
 }
 
-// bulkRefreshConcurrency is the number of OAuth refresh requests we allow to
-// run in parallel against auth.openai.com. Upstream's TriggerRefreshAll fires
-// one goroutine per auth (no cap) which causes a thundering-herd that produces
-// spurious refresh_token_reused 401s on large pools (~280 codex accounts).
+// bulkRefreshConcurrency is the default number of OAuth refresh requests we
+// allow to run in parallel against auth.openai.com.
 const bulkRefreshConcurrency = 8
 
-func newRefreshTokensJob(manager *coreauth.Manager) *managementJob {
+// throttledRefresher is satisfied by *coreauth.Manager when the overlay's
+// bulk_refresh_throttled.go is present in the auth package. jobs.go uses an
+// interface assertion so it compiles against the bare upstream (which lacks
+// TriggerRefreshAllThrottled) and falls back gracefully.
+type throttledRefresher interface {
+	TriggerRefreshAllThrottled(ctx context.Context, concurrency int, force bool) (queued, skipped, succeeded, failed int)
+}
+
+type refreshJobOptions struct {
+	Force       bool
+	Concurrency int
+}
+
+func newRefreshTokensJob(manager *coreauth.Manager, opts refreshJobOptions) *managementJob {
 	now := time.Now()
+	conc := opts.Concurrency
+	if conc <= 0 {
+		conc = bulkRefreshConcurrency
+	}
+
 	job := &managementJob{
 		ID:        uuid.NewString(),
 		Type:      "refresh_tokens",
 		Status:    "running",
 		StartedAt: now,
 		UpdatedAt: now,
+		Force:     opts.Force,
 	}
 	if manager == nil {
 		job.Status = "completed"
 		return job
 	}
+
+	// Determine which accounts need refreshing. In smart mode (force=false)
+	// the throttled worker (TriggerRefreshAllThrottled) handles the per-account
+	// skip logic internally via shouldSkipBulkRefresh. Here we just collect all
+	// non-disabled, non-api-key OAuth accounts as targets so the snapshot can
+	// track per-account progress regardless of mode.
 	for _, auth := range manager.List() {
 		if auth == nil || auth.Disabled {
 			continue
@@ -112,17 +149,56 @@ func newRefreshTokensJob(manager *coreauth.Manager) *managementJob {
 		}
 		job.TargetIDs = append(job.TargetIDs, auth.ID)
 	}
+
+	// Queued = total OAuth accounts in scope (for display in "已创建任务 N 个账号").
+	job.Queued = len(job.TargetIDs)
+
 	if len(job.TargetIDs) == 0 {
 		job.Status = "completed"
 		return job
 	}
-	job.Queued = len(job.TargetIDs)
 
-	// Run the actual refresh in the background through the throttled bulk
-	// helper. This both caps concurrency and lets the job snapshot reflect
-	// real per-auth outcomes after the worker pool finishes.
 	go func() {
-		manager.TriggerRefreshAllThrottled(context.Background(), bulkRefreshConcurrency)
+		// goroutineDone=1 signals snapshot() that all refresh attempts have
+		// returned, so any still-pending accounts can be reclassified as
+		// skipped and the job marked completed — even when conductor skipped
+		// an account due to NextRefreshAfter backoff.
+		defer atomic.StoreInt32(&job.goroutineDone, 1)
+
+		ctx := context.Background()
+		if tr, ok := any(manager).(throttledRefresher); ok {
+			// Overlay throttled version: blocks until every refreshAuth call
+			// returns via a bounded worker pool — no thundering herd.
+			tr.TriggerRefreshAllThrottled(ctx, conc, opts.Force)
+			return
+		}
+
+		// Fallback: upstream TriggerRefreshAll fires goroutines in the
+		// background and returns immediately (no blocking). Poll until all
+		// target accounts reach a terminal state or the job is close to
+		// timing out, then let the defer signal completion.
+		manager.TriggerRefreshAll(ctx)
+		deadline := time.Now().Add(refreshJobTimeout - 30*time.Second)
+		for time.Now().Before(deadline) {
+			time.Sleep(3 * time.Second)
+			pending := 0
+			for _, id := range job.TargetIDs {
+				a, ok := manager.GetByID(id)
+				if !ok || a == nil || a.Disabled {
+					continue
+				}
+				refreshed := !a.LastRefreshedAt.IsZero() && !a.LastRefreshedAt.Before(job.StartedAt)
+				hasFailed := a.LastError != nil && !a.NextRefreshAfter.IsZero() && a.NextRefreshAfter.After(job.StartedAt)
+				if !refreshed && !hasFailed {
+					pending++
+				}
+			}
+			if pending == 0 {
+				return
+			}
+		}
+		// Deadline reached; defer sets goroutineDone and snapshot() will
+		// force-complete remaining pending accounts as skipped.
 	}()
 	return job
 }
@@ -132,14 +208,20 @@ func (j *managementJob) snapshot(manager *coreauth.Manager) managementJobSnapsho
 		return managementJobSnapshot{Status: "not_found"}
 	}
 	snap := managementJobSnapshot{
-		ID:        j.ID,
-		Type:      j.Type,
-		Status:    j.Status,
-		StartedAt: j.StartedAt.Unix(),
-		UpdatedAt: time.Now().Unix(),
-		Total:     len(j.TargetIDs),
-		Queued:    j.Queued,
+		ID:              j.ID,
+		Type:            j.Type,
+		Status:          j.Status,
+		StartedAt:       j.StartedAt.Unix(),
+		UpdatedAt:       time.Now().Unix(),
+		Total:           len(j.TargetIDs) + j.PreSkippedCount,
+		Queued:          j.Queued,
+		PreSkippedCount: j.PreSkippedCount,
+		Force:           j.Force,
 	}
+	// Accounts skipped upfront (valid token) count as done immediately.
+	snap.Skipped += j.PreSkippedCount
+	snap.Done += j.PreSkippedCount
+
 	if manager == nil || len(j.TargetIDs) == 0 {
 		snap.Status = "completed"
 		return snap
@@ -163,7 +245,18 @@ func (j *managementJob) snapshot(manager *coreauth.Manager) managementJobSnapsho
 		}
 		snap.Pending++
 	}
-	if snap.Done >= snap.Total {
+	// If the background goroutine has exited, all refreshAuth calls have
+	// returned. Any account still showing as Pending at this point was either
+	// skipped by the conductor (NextRefreshAfter in future at call time) or
+	// refreshAuth returned early without updating state. Reclassify them as
+	// Skipped so Done reaches Total and the job can be marked completed.
+	goroutineDone := atomic.LoadInt32(&j.goroutineDone) != 0
+	if goroutineDone && snap.Pending > 0 {
+		snap.Skipped += snap.Pending
+		snap.Done += snap.Pending
+		snap.Pending = 0
+	}
+	if snap.Done >= snap.Total || goroutineDone {
 		snap.Status = "completed"
 	} else if time.Since(j.StartedAt) > refreshJobTimeout {
 		snap.Status = "timeout"
@@ -178,7 +271,16 @@ func (h *Handler) PostRefreshTokensJob(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth manager unavailable"})
 		return
 	}
-	job := newRefreshTokensJob(h.authManager)
+	var body struct {
+		Force       bool `json:"force"`
+		Concurrency int  `json:"concurrency"`
+	}
+	_ = c.ShouldBindJSON(&body) // body is optional
+
+	job := newRefreshTokensJob(h.authManager, refreshJobOptions{
+		Force:       body.Force,
+		Concurrency: body.Concurrency,
+	})
 	globalManagementJobs.put(job)
 	snapshot := job.snapshot(h.authManager)
 	PublishManagementEvent("job.created", snapshot)

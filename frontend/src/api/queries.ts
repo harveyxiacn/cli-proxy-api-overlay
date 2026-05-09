@@ -185,8 +185,10 @@ export const fetchRequestHistory = (
 export const clearRequestHistory = (c: ConnectConfig) => apiFetch("POST", "/request-history/clear", c)
 
 // Jobs
-export const startRefreshTokensJob = (c: ConnectConfig) =>
-  apiFetch<ManagementJob>("POST", "/jobs/refresh-tokens", c)
+export const startRefreshTokensJob = (
+  c: ConnectConfig,
+  opts?: { force?: boolean; concurrency?: number },
+) => apiFetch<ManagementJob>("POST", "/jobs/refresh-tokens", c, opts ?? {})
 export const fetchManagementJob = (c: ConnectConfig, id: string) =>
   apiFetch<ManagementJob>("GET", `/jobs/${encodeURIComponent(id)}`, c)
 export const fetchManagementJobs = (c: ConnectConfig) =>

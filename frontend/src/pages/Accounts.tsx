@@ -1,12 +1,13 @@
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useConnection } from "@/stores/connection"
 import {
   fetchAuthFiles, fetchAuthStats, patchAuthFileStatus, patchAuthFileFields,
   patchAuthFileStatusBatch, deleteAuthFile, deleteAuthFilesBatch, downloadAuthFilesBatch,
-  uploadAuthFile, warmupAccounts, startRefreshTokensJob, waitForManagementJob,
+  uploadAuthFile, warmupAccounts, startRefreshTokensJob, fetchManagementJob,
   startOAuthRepairFlow, fetchAuthMaintenanceSummary, qkeys
 } from "@/api/queries"
+import type { ManagementJob } from "@/api/types"
 import { Button } from "@/components/ui/Button"
 import { Badge, AuthStatusBadge } from "@/components/ui/Badge"
 import { Card, CardTitle } from "@/components/ui/Card"
@@ -71,8 +72,11 @@ function sortValue(f: AuthFile, col: SortCol): string | number {
       // Mirror AuthStatusBadge categories so the visible badge groups together.
       // Sort prefix ascends from healthy → degraded → disabled.
       if (f.disabled)                                     return "9_disabled"
-      if (needsRelogin(f.status_message ?? ""))           return "8_needs_relogin"
-      if (f.status === "active" && !f.last_refresh)       return "5_unrefreshed"
+      // Only treat as needs_relogin when status is NOT active/ready.
+      // Active accounts are working; their status_message may have a stale
+      // refresh error that should not affect sort priority.
+      if (f.status !== "active" && f.status !== "ready" && needsRelogin(f.status_message ?? ""))
+                                                           return "8_needs_relogin"
       if (f.status === "error")                            return "4_error"
       if (f.status === "unavailable")                      return "3_unavailable"
       return "1_" + (f.status ?? "")
@@ -93,6 +97,15 @@ const STATUS_OPTIONS = [
   { value: "disabled", label: "disabled" },
 ]
 
+// Inline refresh job state — drives the progress bar and per-row indicators.
+type RefreshJobState = {
+  snapshot: ManagementJob
+  /** ms timestamp of the job's started_at (for comparing last_refresh) */
+  startedAt: number
+  /** true once we've seen status !== "running" and should hide after a delay */
+  finishing: boolean
+}
+
 export function Accounts() {
   const { config, connected } = useConnection()
   const qc = useQueryClient()
@@ -108,12 +121,70 @@ export function Accounts() {
   const [warmupResults, setWarmupResults] = useState<WarmupResult[] | null>(null)
   const [drawerFile, setDrawerFile] = useState<AuthFile | null>(null)
   const [reloginBatchOpen, setReloginBatchOpen] = useState(false)
+  const [refreshJob, setRefreshJob] = useState<RefreshJobState | null>(null)
+  const refreshPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // While a refresh job is running, poll the job + auth list at 1.5s intervals.
+  const isRefreshing = refreshJob?.snapshot.status === "running"
   const filesQ = useQuery({
     queryKey: qkeys.authFiles(config),
     queryFn: () => fetchAuthFiles(config),
     enabled: connected,
+    refetchInterval: isRefreshing ? 1500 : false,
   })
+
+  // Poll job status separately so the progress bar updates even if authFiles is slow.
+  // Also handles the edge case where a job is already "completed" on first response
+  // (e.g. no OAuth accounts exist).
+  useEffect(() => {
+    if (refreshPollRef.current) clearInterval(refreshPollRef.current)
+    if (!refreshJob) return
+
+    const showJobToast = (j: ManagementJob) => {
+      const skipped = j.skipped ?? 0
+      const allSkipped = j.success === 0 && j.failed === 0 && skipped > 0
+      if (j.status === "completed") {
+        if (allSkipped) {
+          toast.info(`Token 均在有效期内，已跳过 ${skipped} 个账号（无需刷新）`)
+        } else if (j.failed === 0) {
+          const skipNote = skipped > 0 ? ` · 跳过有效 ${skipped}` : ""
+          toast.success(`✓ Token 刷新完成 — 成功 ${j.success}${skipNote}`)
+        } else {
+          const skipNote = skipped > 0 ? ` · 跳过 ${skipped}` : ""
+          toast.warn(`Token 刷新 — 成功 ${j.success} · 失败 ${j.failed}${skipNote}`)
+        }
+      } else {
+        toast.warn("Token 刷新超时，部分账号可能未完成")
+      }
+    }
+
+    // If the job is already done on arrival (e.g. immediately completed), handle inline.
+    if (refreshJob.snapshot.status !== "running") {
+      invalidateAccountViews()
+      showJobToast(refreshJob.snapshot)
+      setRefreshJob(prev => prev ? { ...prev, finishing: true } : null)
+      const t = setTimeout(() => setRefreshJob(null), 5000)
+      return () => clearTimeout(t)
+    }
+
+    refreshPollRef.current = setInterval(async () => {
+      try {
+        const updated = await fetchManagementJob(config, refreshJob.snapshot.id)
+        setRefreshJob(prev => prev ? { ...prev, snapshot: updated } : null)
+        if (updated.status !== "running") {
+          clearInterval(refreshPollRef.current!)
+          invalidateAccountViews()
+          qc.invalidateQueries({ queryKey: ["auth-stats-trends", config.url, config.key] })
+          showJobToast(updated)
+          setRefreshJob(prev => prev ? { ...prev, finishing: true } : null)
+          setTimeout(() => setRefreshJob(null), 5000)
+        }
+      } catch { /* ignore transient poll errors */ }
+    }, 1500)
+
+    return () => { if (refreshPollRef.current) clearInterval(refreshPollRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshJob?.snapshot.id, refreshJob?.snapshot.status])
 
   // Recent activity buckets (for sparkline column)
   const statsQ = useQuery({
@@ -128,6 +199,7 @@ export function Accounts() {
     enabled: connected,
     staleTime: 15_000,
   })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const invalidateAccountViews = () => {
     qc.invalidateQueries({ queryKey: qkeys.authFiles(config) })
     qc.invalidateQueries({ queryKey: qkeys.maintenance(config) })
@@ -153,7 +225,7 @@ export function Accounts() {
     .filter(f => {
       if (!filter.status) return true
       if (filter.status === "problem")  return f.disabled || f.unavailable || (!!f.status && !["active", "ready"].includes(f.status))
-      if (filter.status === "relogin")  return needsRelogin(f.status_message ?? "")
+      if (filter.status === "relogin")  return f.status !== "active" && f.status !== "ready" && needsRelogin(f.status_message ?? "")
       if (filter.status === "disabled") return f.disabled
       if (filter.status === "active")   return f.status === "active" && !f.disabled
       if (filter.status === "ready")    return f.status === "ready" && !f.disabled
@@ -182,7 +254,7 @@ export function Accounts() {
         : maintQ.data?.candidates.problem
     const names = fromServer ?? allFiles
       .filter(f => type === "relogin"
-        ? needsRelogin(f.status_message ?? "")
+        ? f.status !== "active" && f.status !== "ready" && needsRelogin(f.status_message ?? "")
         : type === "problem"
           ? f.disabled || f.unavailable || (!!f.status && !["active", "ready"].includes(f.status))
           : f.provider === "codex" && f.unavailable && !needsRelogin(f.status_message ?? ""))
@@ -287,40 +359,17 @@ export function Accounts() {
     }
   }
 
-  const handleRefreshAllTokens = async () => {
-    modal.show("刷新全部 Token", "正在创建刷新任务…")
-    modal.animateTo(20, 800)
+  const handleRefreshAllTokens = async (force = false) => {
+    if (refreshJob?.snapshot.status === "running") return
     try {
-      const job = await startRefreshTokensJob(config)
-      modal.stopAnimation()
+      const job = await startRefreshTokensJob(config, { force })
       if (job.queued === 0) {
-        modal.finish("没有可刷新的 OAuth 账号（API key 账号无需刷新）")
+        toast.info("没有可刷新的 OAuth 账号（API key 账号无需刷新）")
         return
       }
-      modal.update(25, `已创建任务（${job.queued} 个账号），轮询进度…`)
-      const final = await waitForManagementJob(config, job, j => {
-        const pct = j.total > 0 ? 25 + Math.round((j.done / j.total) * 70) : 90
-        modal.update(
-          pct,
-          `刷新进度：${j.done}/${j.total}`,
-          `成功 ${j.success} · 失败 ${j.failed} · 待处理 ${j.pending}`,
-        )
-      })
-      invalidateAccountViews()
-      qc.invalidateQueries({ queryKey: ["auth-stats-trends", config.url, config.key] })
-      const summary = `成功 ${final.success}  失败 ${final.failed}  共 ${final.total}`
-      if (final.status === "completed" && final.failed === 0) {
-        modal.finish(`✓ 全部刷新成功 — ${summary}`)
-      } else if (final.status === "completed") {
-        modal.finish(`完成 — ${summary}`, "失败的账号可能 refresh_token 已过期，需要重新 OAuth 登录")
-      } else if (final.status === "timeout") {
-        modal.finish(`⏱ 等待超时 — ${summary}`, "任务仍在后台运行，可前往「任务」页查看")
-      } else {
-        modal.finish(`⚠ ${final.status} — ${summary}`)
-      }
+      setRefreshJob({ snapshot: job, startedAt: job.started_at * 1000, finishing: false })
     } catch (e) {
-      modal.stopAnimation()
-      modal.finish("✗ " + (e instanceof Error ? e.message : String(e)))
+      toast.error("创建刷新任务失败：" + (e instanceof Error ? e.message : String(e)))
     }
   }
 
@@ -366,12 +415,25 @@ export function Accounts() {
       <Card>
         <CardTitle>
           授权文件管理
-          <div className="flex gap-1.5 flex-wrap">
+          <div className="flex gap-1.5 flex-wrap items-center">
             <Button variant="primary" size="sm" onClick={invalidateAccountViews}>
               🔄 刷新
             </Button>
-            <Button variant="success" size="sm" onClick={handleRefreshAllTokens}>
-              ⚡ 刷新全部Token
+            <Button
+              variant="success" size="sm"
+              onClick={() => handleRefreshAllTokens(false)}
+              disabled={isRefreshing}
+              title="智能刷新：跳过 token 仍有效的账号，仅刷新过期或有错误的账号"
+            >
+              {isRefreshing ? <><Spinner size={12} /> 刷新中…</> : "⚡ 智能刷新Token"}
+            </Button>
+            <Button
+              variant="ghost" size="sm"
+              onClick={() => handleRefreshAllTokens(true)}
+              disabled={isRefreshing}
+              title="强制刷新全部 OAuth 账号（无论 token 是否有效）"
+            >
+              🔁 强制刷新全部
             </Button>
             <Button
               variant="ghost" size="sm"
@@ -387,6 +449,54 @@ export function Accounts() {
             </Button>
           </div>
         </CardTitle>
+
+        {/* Inline refresh progress bar */}
+        {refreshJob && (() => {
+          const { snapshot: j, finishing } = refreshJob
+          const pct = j.total > 0 ? Math.round(j.done / j.total * 100) : 0
+          const isRunning = j.status === "running"
+          return (
+            <div className={cn(
+              "mb-3 rounded-lg border border-[#2d3148] bg-[#12152a] p-3 text-sm transition-opacity duration-1000",
+              finishing ? "opacity-40" : "opacity-100"
+            )}>
+              <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
+                <span className="text-[#94a3b8] font-medium">
+                  {isRunning
+                    ? `⚡ Token 刷新中… ${j.done}/${j.total}`
+                    : j.status === "completed" && j.success === 0 && j.failed === 0
+                      ? `— Token 均有效，已跳过 ${j.done}/${j.total}`
+                      : j.status === "completed"
+                        ? `✓ 刷新完成 ${j.done}/${j.total}`
+                        : `⏱ 刷新超时 ${j.done}/${j.total}`
+                  }
+                </span>
+                <span className="text-[0.78rem] text-[#64748b] space-x-2">
+                  {j.success > 0 && <span className="text-green-400">✓ {j.success}</span>}
+                  {j.failed > 0 && <span className="text-red-400">✗ {j.failed}</span>}
+                  {(j.skipped ?? 0) > 0 && <span className="text-[#94a3b8]">跳过 {j.skipped}</span>}
+                  {j.pending > 0 && <span className="text-yellow-400">待处理 {j.pending}</span>}
+                  {!j.force && <span className="text-[#4a5568] text-[0.72rem]">智能模式</span>}
+                </span>
+              </div>
+              <div className="h-1.5 bg-[#2d3148] rounded-full overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-700",
+                    j.status === "completed" && j.failed === 0 && j.success > 0
+                      ? "bg-green-500"
+                      : j.status === "completed" && j.failed > 0
+                        ? "bg-yellow-500"
+                        : j.status === "completed" && j.success === 0
+                          ? "bg-[#4a5568]"  // all skipped — neutral grey
+                          : "bg-gradient-to-r from-[#6c63ff] to-[#4ecdc4]"
+                  )}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Upload area */}
         <div
@@ -570,7 +680,11 @@ export function Accounts() {
                 </tr>
               )}
               {filtered.map(f => {
-                const isRelogin = needsRelogin(f.status_message ?? "")
+                const isWorking = f.status === "active" || f.status === "ready"
+                // Only flag as relogin when account is NOT working (non-active status with relogin keyword).
+                // Active accounts are serving requests fine; their background refresh errors should not
+                // cause alarming row highlights or count as "needs_relogin".
+                const isRelogin = !isWorking && needsRelogin(f.status_message ?? "")
                 const isProblem = f.disabled || f.unavailable || (!!f.status && !["active", "ready", "disabled"].includes(f.status))
                 const rowBg = isRelogin ? "bg-orange-500/4" : isProblem ? "bg-red-500/4" : ""
                 const isSelected = selected.has(f.name)
@@ -631,22 +745,40 @@ export function Accounts() {
                       )}
                     </td>
                     <td className="px-2 py-2">
-                      <AuthStatusBadge
-                        status={f.status} disabled={f.disabled}
-                        statusMessage={f.status_message}
-                        lastRefresh={f.last_refresh} failed={f.failed}
-                        lastError={f.last_error}
-                      />
+                      <div className="flex items-center gap-1">
+                        <AuthStatusBadge
+                          status={f.status} disabled={f.disabled}
+                          statusMessage={f.status_message}
+                          lastRefresh={f.last_refresh} failed={f.failed}
+                          lastError={f.last_error}
+                        />
+                        {refreshJob && (() => {
+                          const jobStart = refreshJob.startedAt
+                          const refreshedAt = f.last_refresh ? new Date(f.last_refresh).getTime() : 0
+                          if (refreshedAt > jobStart) {
+                            // Token was refreshed during this job
+                            return <CheckCircle2 size={12} className="text-green-400 shrink-0" />
+                          }
+                          if (refreshJob.snapshot.status === "running" && !f.disabled) {
+                            // Still in progress for this account
+                            return <RefreshCw size={11} className="text-[#6c63ff] shrink-0 animate-spin" />
+                          }
+                          return null
+                        })()}
+                      </div>
                     </td>
                     <td className="px-2 py-2 w-[160px] max-w-[160px]">
-                      {f.last_error?.message
+                      {/* For working accounts (active/ready), CPA considers them healthy.
+                          Don't show last_error from background refresh failures — the account
+                          IS serving requests. Only show errors for genuinely broken accounts. */}
+                      {!isWorking && f.last_error?.message
                         ? <button
                             type="button"
                             className="text-red-400 text-[0.76rem] block max-w-full text-left hover:underline cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap"
                             title={`${f.last_error.code ? f.last_error.code + ": " : ""}${f.last_error.message}\n点击查看完整账号详情`}
                             onClick={() => setDrawerFile(f)}
                           >{briefError(f.last_error)}</button>
-                        : f.status_message
+                        : !isWorking && f.status_message
                           ? <button
                               type="button"
                               className="text-yellow-400 text-[0.76rem] block max-w-full text-left hover:underline cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap"
@@ -945,11 +1077,12 @@ function DetailRow({ k, v, mono }: { k: string; v: React.ReactNode; mono?: boole
   )
 }
 
-function MaintenanceTile({ label, value, tone = "default", onClick }: {
+function MaintenanceTile({ label, value, tone = "default", onClick, title }: {
   label: string
   value: React.ReactNode
   tone?: "default" | "orange" | "yellow" | "red"
   onClick?: () => void
+  title?: string
 }) {
   const toneClass = {
     default: "text-[#e2e8f0]",
@@ -968,6 +1101,7 @@ function MaintenanceTile({ label, value, tone = "default", onClick }: {
       <button
         type="button"
         onClick={onClick}
+        title={title}
         className="min-w-0 rounded-lg border border-[#2d3148] bg-[#0f1117] px-3 py-2 text-left hover:border-[#6c63ff] hover:bg-[#6c63ff]/5 transition-colors"
       >
         {content}
@@ -975,7 +1109,7 @@ function MaintenanceTile({ label, value, tone = "default", onClick }: {
     )
   }
   return (
-    <div className="min-w-0 rounded-lg border border-[#2d3148] bg-[#0f1117] px-3 py-2">
+    <div title={title} className="min-w-0 rounded-lg border border-[#2d3148] bg-[#0f1117] px-3 py-2">
       {content}
     </div>
   )

@@ -28,9 +28,9 @@ export function Badge({ variant = "default", className, children, title }: {
   )
 }
 
-export function AuthStatusBadge({ status, disabled, statusMessage, lastRefresh, failed, lastError }: {
+export function AuthStatusBadge({ status, disabled, statusMessage, lastError }: {
   status?: string; disabled?: boolean; statusMessage?: string
-  lastRefresh?: string; failed?: number
+  lastRefresh?: string; failed?: number  // kept for API compatibility, not used by badge
   lastError?: { code?: string; message?: string }
 }) {
   if (disabled) return <Badge variant="disabled">禁用</Badge>
@@ -41,16 +41,14 @@ export function AuthStatusBadge({ status, disabled, statusMessage, lastRefresh, 
   // needsRelogin() text when status itself signals trouble (error / unavailable
   // / unknown) — that matches the upstream UI's behavior.
   if (status === "active") {
-    if (!lastRefresh) {
-      const baseTip = (failed ?? 0) > 0
-        ? "状态为 active 但从未成功刷新过 token；最近的刷新尝试有失败记录，账号可能已失效"
-        : "状态为 active 但尚未成功刷新过 token；建议手动 warmup 验证"
-      const tip = lastError?.message
-        ? `${baseTip}\n错误：${lastError.message}`
-        : baseTip
-      return <Badge variant="yellow" title={tip}>未刷新</Badge>
-    }
-    return <Badge variant="green">active</Badge>
+    // CPA sets status="active" when the access token is valid and the account
+    // can serve requests. Trust this field — lastRefresh being null/empty just
+    // means CPA hasn't performed a refresh in this process session (it's an
+    // in-memory field reset to zero on restart), not that the account is broken.
+    const tip = lastError?.message
+      ? `正常服务中（access_token 有效）。后台 token 刷新失败：${lastError.message}`
+      : undefined
+    return <Badge variant="green" title={tip}>active</Badge>
   }
   if (status === "ready") return <Badge variant="blue">ready</Badge>
 

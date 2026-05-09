@@ -24,12 +24,40 @@ package management
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
+
+func init() {
+	RegisterExtensionRoute(func(rg *gin.RouterGroup, h *Handler) {
+		rg.GET("/overlay-config", h.GetOverlayConfigHandler)
+	})
+}
+
+// GetOverlayConfigHandler returns the current overlay configuration.
+// GET /v0/management/overlay-config
+func (h *Handler) GetOverlayConfigHandler(c *gin.Context) {
+	globalOverlayConfig.mu.RLock()
+	cfg := globalOverlayConfig.cfg
+	loaded := globalOverlayConfig.loaded
+	source := globalOverlayConfig.source
+	loadErr := globalOverlayConfig.loadErr
+	globalOverlayConfig.mu.RUnlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"config":          cfg,
+		"loaded":          loaded,
+		"source":          source,
+		"load_error":      loadErr,
+		"sqlite_compiled": false, // no CGO/pure-Go SQLite driver bundled yet
+	})
+}
 
 const overlayConfigFilename = "overlay.yaml"
 

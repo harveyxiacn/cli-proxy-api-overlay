@@ -25,6 +25,10 @@ type authMaintenanceSummary struct {
 	NeedsRelogin    int `json:"needs_relogin"`
 	UnavailableFree int `json:"unavailable_free"`
 	Problem         int `json:"problem"`
+	// RefreshFailed: active accounts whose refresh_token has a non-retryable
+	// error (e.g. refresh_token_reused) but whose access_token is still valid.
+	// These work now but will need re-OAuth when the access_token expires.
+	RefreshFailed int `json:"refresh_failed"`
 }
 
 type authMaintenanceCounts struct {
@@ -74,6 +78,7 @@ func (h *Handler) GetAuthFilesMaintenanceSummary(c *gin.Context) {
 		needsRelogin := authNeedsRelogin(auth)
 		unavailableFree := authUnavailableFree(auth, plan, needsRelogin)
 		problem := authProblem(auth, needsRelogin)
+		refreshFailed := authRefreshFailed(auth)
 
 		summary.Total++
 		counts.Providers[provider]++
@@ -109,6 +114,9 @@ func (h *Handler) GetAuthFilesMaintenanceSummary(c *gin.Context) {
 		if problem {
 			summary.Problem++
 			candidates.Problem = append(candidates.Problem, name)
+		}
+		if refreshFailed {
+			summary.RefreshFailed++
 		}
 	}
 
@@ -202,11 +210,13 @@ func authNeedsRelogin(auth *coreauth.Auth) bool {
 	if auth == nil {
 		return false
 	}
-	// Conductor clears LastError + StatusMessage on every successful op and
-	// flips status back to active/ready, so a healthy account never legitimately
-	// has an unresolved relogin signal. Trust status first — the previous bug
-	// counted ~all 282 accounts as "needs_relogin" because every account had at
-	// least one transient 401 in its lifetime that left a stale message.
+	// Trust status first. When status is active/ready the access_token is still
+	// working — even if the refresh_token is dead (refresh_token_reused), the
+	// account can serve requests right now. The Badge shows "刷新失败" (orange)
+	// for those via lastError, but the maintenance "needs_relogin" bucket should
+	// only count accounts whose access_token has ALSO expired (status = error /
+	// unavailable). This avoids the earlier bug where ~282 accounts were falsely
+	// flagged because every account had at least one transient 401 in its history.
 	if auth.Status == coreauth.StatusActive || string(auth.Status) == "ready" {
 		return false
 	}
@@ -214,6 +224,23 @@ func authNeedsRelogin(auth *coreauth.Auth) bool {
 		return true
 	}
 	if auth.LastError != nil {
+		return statusMessageNeedsRelogin(auth.LastError.Code) || statusMessageNeedsRelogin(auth.LastError.Message)
+	}
+	return false
+}
+
+// authRefreshFailed returns true when an account is still active (access_token
+// working) but its last refresh attempt failed with a non-retryable error.
+// These accounts will eventually become "needs_relogin" once the access_token
+// expires, but are not immediately broken.
+func authRefreshFailed(auth *coreauth.Auth) bool {
+	if auth == nil || auth.Disabled {
+		return false
+	}
+	if auth.Status != coreauth.StatusActive && string(auth.Status) != "ready" {
+		return false // will already be counted as error/needsRelogin
+	}
+	if auth.LastRefreshedAt.IsZero() && auth.LastError != nil {
 		return statusMessageNeedsRelogin(auth.LastError.Code) || statusMessageNeedsRelogin(auth.LastError.Message)
 	}
 	return false

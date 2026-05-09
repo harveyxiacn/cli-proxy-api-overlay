@@ -1,0 +1,17 @@
+diff --git a/internal/auth/codex/openai_auth.go b/internal/auth/codex/openai_auth.go
+index 00000000..00000000 100644
+--- a/internal/auth/codex/openai_auth.go
++++ b/internal/auth/codex/openai_auth.go
+@@ -306,9 +306,11 @@ func isNonRetryableRefreshErr(err error) bool {
+ func isNonRetryableRefreshErr(err error) bool {
+ 	if err == nil {
+ 		return false
+ 	}
+ 	raw := strings.ToLower(err.Error())
+-	return strings.Contains(raw, "refresh_token_reused")
++	return strings.Contains(raw, "refresh_token_reused") ||
++		strings.Contains(raw, "invalid_grant") ||
++		strings.Contains(raw, "invalid grant")
+ }
+ 
+ // UpdateTokenStorage updates an existing CodexTokenStorage with new token data.

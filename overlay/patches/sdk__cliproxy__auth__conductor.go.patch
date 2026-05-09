@@ -1,8 +1,132 @@
 diff --git a/sdk/cliproxy/auth/conductor.go b/sdk/cliproxy/auth/conductor.go
-index ab3eca49..8e285add 100644
+index 00000000..00000000 100644
 --- a/sdk/cliproxy/auth/conductor.go
 +++ b/sdk/cliproxy/auth/conductor.go
-@@ -3764,3 +3764,29 @@ func (m *Manager) HttpRequest(ctx context.Context, auth *Auth, req *http.Request
+@@ -177,7 +177,12 @@ type Manager struct {
+ 	// Auto refresh state
+ 	refreshCancel context.CancelFunc
+ 	refreshLoop   *authAutoRefreshLoop
++	refreshFlights map[string]*authRefreshFlight
+ }
++
++type authRefreshFlight struct {
++	done chan struct{}
++}
+ 
+ // NewManager constructs a manager with optional custom selector and hook.
+ func NewManager(store Store, selector Selector, hook Hook) *Manager {
+@@ -196,6 +201,7 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
+ 		auths:            make(map[string]*Auth),
+ 		providerOffsets:  make(map[string]int),
+ 		modelPoolOffsets: make(map[string]int),
++		refreshFlights:   make(map[string]*authRefreshFlight),
+ 	}
+ 	// atomic.Value requires non-nil initial value.
+ 	manager.runtimeConfig.Store(&internalconfig.Config{})
+@@ -3497,11 +3503,75 @@ func (m *Manager) markRefreshPending(id string, now time.Time) bool {
+ 	m.queueRefreshReschedule(id)
+ 	return true
+ }
+ 
++func (m *Manager) beginAuthRefresh(ctx context.Context, id string) (*authRefreshFlight, bool) {
++	if m == nil || id == "" {
++		return nil, false
++	}
++	m.mu.Lock()
++	if m.refreshFlights == nil {
++		m.refreshFlights = make(map[string]*authRefreshFlight)
++	}
++	if existing := m.refreshFlights[id]; existing != nil {
++		done := existing.done
++		m.mu.Unlock()
++		select {
++		case <-done:
++		case <-ctx.Done():
++		}
++		return nil, false
++	}
++	flight := &authRefreshFlight{done: make(chan struct{})}
++	m.refreshFlights[id] = flight
++	m.mu.Unlock()
++	return flight, true
++}
++
++func (m *Manager) endAuthRefresh(id string, flight *authRefreshFlight) {
++	if m == nil || id == "" || flight == nil {
++		return
++	}
++	m.mu.Lock()
++	if current := m.refreshFlights[id]; current == flight {
++		delete(m.refreshFlights, id)
++		close(flight.done)
++	}
++	m.mu.Unlock()
++}
++
++func authRefreshTokenValue(auth *Auth) string {
++	if auth == nil || auth.Metadata == nil {
++		return ""
++	}
++	value, _ := auth.Metadata["refresh_token"].(string)
++	return strings.TrimSpace(value)
++}
++
++func refreshRaceRecoveredByNewToken(err error, previous *Auth, current *Auth) bool {
++	if err == nil {
++		return false
++	}
++	raw := strings.ToLower(err.Error())
++	if !strings.Contains(raw, "refresh_token_reused") &&
++		!strings.Contains(raw, "invalid_grant") &&
++		!strings.Contains(raw, "invalid grant") {
++		return false
++	}
++	previousToken := authRefreshTokenValue(previous)
++	currentToken := authRefreshTokenValue(current)
++	return previousToken != "" && currentToken != "" && previousToken != currentToken
++}
++
+ func (m *Manager) refreshAuth(ctx context.Context, id string) {
+ 	if ctx == nil {
+ 		ctx = context.Background()
+ 	}
++	flight, ownsFlight := m.beginAuthRefresh(ctx, id)
++	if !ownsFlight {
++		return
++	}
++	defer m.endAuthRefresh(id, flight)
++
+ 	m.mu.RLock()
+ 	auth := m.auths[id]
+ 	var exec ProviderExecutor
+@@ -3524,7 +3590,21 @@ func (m *Manager) refreshAuth(ctx context.Context, id string) {
+ 	if err != nil {
+ 		shouldReschedule := false
+ 		m.mu.Lock()
+ 		if current := m.auths[id]; current != nil {
++			if refreshRaceRecoveredByNewToken(err, cloned, current) {
++				current.NextRefreshAfter = time.Time{}
++				current.LastError = nil
++				current.StatusMessage = ""
++				current.UpdatedAt = now
++				m.auths[id] = current
++				if m.scheduler != nil {
++					m.scheduler.upsertAuth(current.Clone())
++				}
++				shouldReschedule = true
++				m.mu.Unlock()
++				m.queueRefreshReschedule(id)
++				return
++			}
+ 			current.NextRefreshAfter = now.Add(refreshFailureBackoff)
+ 			current.LastError = &Error{Message: err.Error()}
++			// Sync the error text to StatusMessage so that needsRelogin() /
++			// authNeedsRelogin() can detect non-recoverable failures (e.g.
++			// "invalid_grant") once the access token eventually expires and
++			// status leaves "active".
++			current.StatusMessage = err.Error()
+ 			m.auths[id] = current
+@@ -3764,3 +3844,41 @@ func (m *Manager) HttpRequest(ctx context.Context, auth *Auth, req *http.Request
  	}
  	return exec.HttpRequest(ctx, auth, req)
  }
@@ -31,4 +155,16 @@ index ab3eca49..8e285add 100644
 +		count++
 +	}
 +	return count
++}
++
++// RefreshAuthByID explicitly refreshes a single auth credential by ID.
++// It blocks until the refresh attempt completes and respects any in-flight
++// singleflight deduplication that may be active for this auth.
++// This is the public entry point used by overlay code (e.g. TriggerRefreshAllThrottled)
++// so that overlay files only call exported methods and remain version-independent.
++func (m *Manager) RefreshAuthByID(ctx context.Context, id string) {
++	if m == nil || id == "" {
++		return
++	}
++	m.refreshAuth(ctx, id)
 +}

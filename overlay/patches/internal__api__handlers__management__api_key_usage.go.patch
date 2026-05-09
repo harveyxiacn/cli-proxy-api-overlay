@@ -10,7 +10,7 @@ index 3361da5d..13fe0ab3 100644
  	"net/http"
  	"strings"
  	"time"
-@@ -105,3 +106,90 @@ func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
+@@ -105,3 +106,96 @@ func (h *Handler) GetAPIKeyUsage(c *gin.Context) {
  
  	c.JSON(http.StatusOK, out)
  }
@@ -88,16 +88,22 @@ index 3361da5d..13fe0ab3 100644
 +	})
 +}
 +
-+// PostRefreshAllTokens triggers an immediate background refresh for all non-disabled OAuth credentials.
++// PostRefreshAllTokens keeps the legacy endpoint safe by routing it through the
++// same throttled refresh job used by the React management pages.
 +func (h *Handler) PostRefreshAllTokens(c *gin.Context) {
 +	if h == nil || h.authManager == nil {
 +		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth manager unavailable"})
 +		return
 +	}
-+	count := h.authManager.TriggerRefreshAll(c.Request.Context())
++	job := newRefreshTokensJob(h.authManager)
++	globalManagementJobs.put(job)
++	snapshot := job.snapshot(h.authManager)
++	PublishManagementEvent("job.created", snapshot)
 +	c.JSON(http.StatusOK, gin.H{
 +		"status":  "ok",
-+		"queued":  count,
-+		"message": fmt.Sprintf("Queued %d credential(s) for immediate refresh", count),
++		"queued":  snapshot.Queued,
++		"job_id":  snapshot.ID,
++		"job":     snapshot,
++		"message": fmt.Sprintf("Queued %d credential(s) for throttled refresh job %s", snapshot.Queued, snapshot.ID),
 +	})
 +}

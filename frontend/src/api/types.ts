@@ -462,6 +462,8 @@ export interface AuthMaintenanceSummary {
     needs_relogin: number
     unavailable_free: number
     problem: number
+    /** Active accounts with a dead refresh_token (access_token still valid now). */
+    refresh_failed?: number
   }
   counts: {
     providers: Record<string, number>
@@ -489,6 +491,8 @@ export interface ManagementJob {
   failed: number
   skipped: number
   pending: number
+  pre_skipped_count?: number // accounts skipped upfront (valid token, smart mode)
+  force?: boolean            // whether force-refresh was requested
 }
 
 export interface ManagementEventToken { token: string; expires_at: number }
