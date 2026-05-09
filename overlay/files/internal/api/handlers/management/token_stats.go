@@ -50,10 +50,14 @@ var pricingTable = []pricingEntry{
 	{"o1-mini", 1.100 / 1000, 0.550 / 1000, 4.400 / 1000, 4.400 / 1000},
 	{"o1", 15.000 / 1000, 7.500 / 1000, 60.000 / 1000, 60.000 / 1000},
 	{"o3-pro", 20.000 / 1000, 20.000 / 1000, 80.000 / 1000, 80.000 / 1000},
-	{"o3-deep-research", 10.000 / 1000, 2.500 / 1000, 40.000 / 1000, 40.000 / 1000},
+	// Updated 2026-05 per developers.openai.com/api/docs/pricing (was $10/$40)
+	{"o3-deep-research", 5.000 / 1000, 5.000 / 1000, 20.000 / 1000, 20.000 / 1000},
 	{"o3-mini", 1.100 / 1000, 0.550 / 1000, 4.400 / 1000, 4.400 / 1000},
 	{"o3", 2.000 / 1000, 0.500 / 1000, 8.000 / 1000, 8.000 / 1000},
-	{"o4-mini-deep-research", 2.000 / 1000, 0.500 / 1000, 8.000 / 1000, 8.000 / 1000},
+	// Updated 2026-05 per developers.openai.com/api/docs/pricing (was $2/$8)
+	{"o4-mini-deep-research", 1.000 / 1000, 1.000 / 1000, 4.000 / 1000, 4.000 / 1000},
+	// o4-mini fine-tuned inference: $4/$16 per 1M (training billed at $100/hr)
+	{"o4-mini-2025", 4.000 / 1000, 1.000 / 1000, 16.000 / 1000, 16.000 / 1000},
 	{"o4-mini", 1.100 / 1000, 0.275 / 1000, 4.400 / 1000, 4.400 / 1000},
 
 	// GPT-5.5 (frontier; gpt-5.5-instant id rejected by codex backend — falls
@@ -124,7 +128,8 @@ var pricingTable = []pricingEntry{
 	{"gpt-3.5", 0.500 / 1000, 0.500 / 1000, 1.500 / 1000, 0},
 
 	// Computer use
-	{"computer-use", 3.000 / 1000, 3.000 / 1000, 12.000 / 1000, 0},
+	// computer-use-preview: $1.50/$6 per 1M per developers.openai.com/api/docs/pricing (2026-05)
+	{"computer-use", 1.500 / 1000, 1.500 / 1000, 6.000 / 1000, 0},
 
 	// Embeddings (input-only; no real output, but mirror input rate for safety)
 	{"text-embedding-3-small", 0.020 / 1000, 0.020 / 1000, 0, 0},
