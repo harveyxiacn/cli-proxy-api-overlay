@@ -480,6 +480,19 @@ export interface AuthMaintenanceSummary {
   }
 }
 
+export interface DailyStatsRecord {
+  date: string
+  input_tokens: number
+  output_tokens: number
+  cached_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  estimated_usd: number
+  requests: number
+  failed_requests: number
+  models?: { key: string; total_tokens: number; estimated_usd: number; requests: number }[]
+}
+
 export interface ManagementJob {
   id: string
   type: string
@@ -629,6 +642,7 @@ export interface APIKeyLimitWithUsage extends APIKeyLimit {
 }
 export interface APIKeyOrphan {
   key_hash: string
+  preview?: string   // masked key like "sk-ab…xyz9" if available
   used_tokens: number
   requests: number
   last_used_at?: number

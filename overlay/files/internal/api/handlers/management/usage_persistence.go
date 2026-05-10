@@ -36,6 +36,7 @@ func (h *Handler) configureUsagePersistence() {
 	}
 	_ = configureRequestHistoryPersistence(filepath.Join(dataDir, requestHistoryFileName))
 	_ = configureTokenStatsPersistence(filepath.Join(dataDir, tokenStatsSnapshotFileName))
+	configureDailyHistoryPersistence(filepath.Join(dataDir, tokenStatsDailyHistoryFileName))
 	configureAuditLogPersistence(filepath.Join(dataDir, auditLogFileName))
 	LoadOverlayConfig(h.configFilePath)
 }

@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useConnection } from "@/stores/connection"
-import { fetchTokenStats, resetTokenStats, qkeys } from "@/api/queries"
+import { fetchTokenStats, resetTokenStats, fetchTokenStatsDailyHistory, qkeys } from "@/api/queries"
 import { Card, CardTitle } from "@/components/ui/Card"
 import { StatCard, StatsGrid } from "@/components/ui/StatCard"
 import { Button } from "@/components/ui/Button"
@@ -33,6 +33,13 @@ export function TokenStats() {
     queryFn: () => fetchTokenStats(config),
     enabled: connected,
     refetchInterval: 30_000,
+  })
+
+  const historyQ = useQuery({
+    queryKey: ["token-stats-daily-history", config.url, config.key],
+    queryFn: () => fetchTokenStatsDailyHistory(config, 30),
+    enabled: connected,
+    staleTime: 5 * 60_000,
   })
 
   const resetMut = useMutation({
@@ -79,6 +86,38 @@ export function TokenStats() {
           API Key 视图按服务端返回的 <code>api_key_hash</code> 聚合，不展示原始 key。
         </Alert>
       </Card>
+
+      {/* 30-day historical usage chart */}
+      {view === "overview" && historyQ.data && historyQ.data.records.length > 0 && (
+        <Card>
+          <CardTitle>
+            <span>📈 近 30 天 Token 趋势</span>
+            <span className="text-[0.72rem] text-[#64748b]">
+              {historyQ.data.count} 天记录 · 每日 23:59 自动存档
+            </span>
+          </CardTitle>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={historyQ.data.records.map(r => ({
+              date: r.date.slice(5),   // "MM-DD"
+              tokens: r.total_tokens,
+              usd: r.estimated_usd,
+              requests: r.requests,
+            }))} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2d3148" />
+              <XAxis dataKey="date" tick={{ fill: "#64748b", fontSize: 11 }} />
+              <YAxis tick={{ fill: "#64748b", fontSize: 11 }} tickFormatter={v => fmtTokens(v as number)} width={64} />
+              <Tooltip
+                contentStyle={{ background: "#1a1d27", border: "1px solid #2d3148", borderRadius: 8, fontSize: 12 }}
+                formatter={(v: number, name: string) => [
+                  name === "tokens" ? fmtTokens(v) : name === "usd" ? fmtUSD(v) : String(v),
+                  name === "tokens" ? "Tokens" : name === "usd" ? "花费" : "请求",
+                ]}
+              />
+              <Bar dataKey="tokens" fill="#6c63ff" radius={[3,3,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
 
       {/* Today */}
       {view === "overview" && <Card>

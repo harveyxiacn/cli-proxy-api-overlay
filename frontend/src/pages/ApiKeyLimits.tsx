@@ -109,7 +109,7 @@ export function ApiKeyLimits() {
               <thead>
                 <tr className="bg-[#22263a]">
                   {[
-                    "状态", "名称", "Hash", "Preview", "今日 Used / Limit",
+                    "状态", "名称", "API Key 标识", "今日 Used / Limit",
                     "% Used", "请求数", "Last Used", "操作",
                   ].map(h => (
                     <th key={h} className="text-left px-2 py-2 text-[#64748b] font-medium whitespace-nowrap">{h}</th>
@@ -121,10 +121,12 @@ export function ApiKeyLimits() {
                   <tr key={l.key_hash} className="border-t border-[#2d3148] hover:bg-[#6c63ff]/5">
                     <td className="px-2 py-2"><StatusPill status={l.status} /></td>
                     <td className="px-2 py-2 text-[#e2e8f0]">{l.name || <span className="text-[#64748b]">-</span>}</td>
-                    <td className="px-2 py-2 font-mono text-[#94a3b8] text-xs" title={l.key_hash}>
-                      {l.key_hash.slice(0, 8)}…{l.key_hash.slice(-6)}
+                    {/* Show key_preview (e.g. "sk-ab…xyz9") as primary identifier.
+                        Fall back to hash prefix only when no preview is stored. */}
+                    <td className="px-2 py-2 font-mono text-[#94a3b8] text-xs"
+                        title={`Hash: ${l.key_hash}`}>
+                      {l.key_preview || `${l.key_hash.slice(0, 8)}…${l.key_hash.slice(-6)}`}
                     </td>
-                    <td className="px-2 py-2 font-mono text-[#94a3b8] text-xs">{l.key_preview || "-"}</td>
                     <td className="px-2 py-2 text-xs">
                       <span className="text-blue-400">{fmtTokens(l.used_tokens)}</span>
                       <span className="text-[#64748b]"> / </span>
@@ -167,7 +169,7 @@ export function ApiKeyLimits() {
             <table className="w-full text-[0.8rem] border-collapse">
               <thead>
                 <tr className="bg-[#22263a]">
-                  {["Hash", "今日 Tokens", "请求数", "Last Used", "操作"].map(h => (
+                  {["Key 标识 (Hash 前8位)", "今日 Tokens", "请求数", "Last Used", "操作"].map(h => (
                     <th key={h} className="text-left px-2 py-2 text-[#64748b] font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -175,8 +177,8 @@ export function ApiKeyLimits() {
               <tbody>
                 {orphans.map(o => (
                   <tr key={o.key_hash} className="border-t border-[#2d3148] hover:bg-[#6c63ff]/5">
-                    <td className="px-2 py-2 font-mono text-[#94a3b8] text-xs" title={o.key_hash}>
-                      {o.key_hash.slice(0, 8)}…{o.key_hash.slice(-6)}
+                    <td className="px-2 py-2 font-mono text-[#94a3b8] text-xs" title={`Full hash: ${o.key_hash}`}>
+                      {o.preview || `${o.key_hash.slice(0, 8)}…${o.key_hash.slice(-6)}`}
                     </td>
                     <td className="px-2 py-2 text-blue-400 text-xs">{fmtTokens(o.used_tokens)}</td>
                     <td className="px-2 py-2 text-[#94a3b8] text-xs">{o.requests}</td>

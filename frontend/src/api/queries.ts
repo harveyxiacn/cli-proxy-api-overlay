@@ -155,6 +155,8 @@ export const fetchSystemUpdateLog = (c: ConnectConfig) => apiFetch<SystemUpdateL
 // Token Stats
 export const fetchTokenStats  = (c: ConnectConfig) => apiFetch<TokenStatsResponse>("GET", "/token-stats", c)
 export const resetTokenStats  = (c: ConnectConfig) => apiFetch("POST", "/token-stats/reset", c)
+export const fetchTokenStatsDailyHistory = (c: ConnectConfig, days = 30) =>
+  apiFetch<{ records: import("./types").DailyStatsRecord[]; count: number }>("GET", `/token-stats/daily-history?days=${days}`, c)
 
 // Logs
 export const fetchLogs        = (c: ConnectConfig, limit = 500, after = 0) => apiFetch<LogsResponse>("GET", `/logs?limit=${limit}${after ? `&after=${after}` : ""}`, c)
